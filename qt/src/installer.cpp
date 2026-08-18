@@ -8,8 +8,14 @@
 
 namespace {
 
+// The launcher resolves the app "path" as an absolute path, but the icon
+// paths relative to the storage root (/mnt/ext1). Mixing them is required:
+// an absolute icon path shows no icon, a relative app path won't launch.
 constexpr const char *kAppPath = "/mnt/ext1/applications/BetterStats.app";
 constexpr const char *kIconDir = "/mnt/ext1/applications/icons";
+constexpr const char *kIconRel = "applications/icons/betterstats.bmp";
+constexpr const char *kIconFocusedRel = "applications/icons/betterstats_f.bmp";
+// Absolute variants for writing the files to disk.
 constexpr const char *kIconPath = "/mnt/ext1/applications/icons/betterstats.bmp";
 constexpr const char *kIconFocusedPath =
     "/mnt/ext1/applications/icons/betterstats_f.bmp";
@@ -58,9 +64,9 @@ void patchViewJson()
         QFile::copy(QLatin1String(kViewJson), QLatin1String(kBackup));
 
     QJsonObject icon;
-    icon[QStringLiteral("path")] = QLatin1String(kIconPath);
+    icon[QStringLiteral("path")] = QLatin1String(kIconRel);
     QJsonObject iconFocused;
-    iconFocused[QStringLiteral("path")] = QLatin1String(kIconFocusedPath);
+    iconFocused[QStringLiteral("path")] = QLatin1String(kIconFocusedRel);
 
     QJsonObject entry;
     entry[QStringLiteral("path")] = QLatin1String(kAppPath);
