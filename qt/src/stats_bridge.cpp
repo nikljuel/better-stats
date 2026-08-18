@@ -3,6 +3,7 @@
 #include <QDate>
 #include <QFile>
 #include <QHash>
+#include <QRegularExpression>
 #include <QUrl>
 #include <QVariantList>
 #include <QVector>
@@ -99,7 +100,30 @@ struct FinishedBook {
     QDate day;
     QString title;
     QString coverUrl;
+    QStringList words; /* normalized title, for the dedupe below */
+    bool hasFile = false;
 };
+
+/* Title as lowercase words, punctuation dropped. */
+QStringList titleWords(const QString &title)
+{
+    static const QRegularExpression sep(QStringLiteral("[^\\p{L}\\p{N}]+"));
+    return title.toLower().split(sep, Qt::SkipEmptyParts);
+}
+
+/* Same book if one word list is a prefix of the other. Catches the variants
+ * books_impl accumulates ("… : Roman", punctuation) without merging series
+ * volumes or "Die Nacht" vs "Die Nachtigall". */
+bool sameBook(const QStringList &a, const QStringList &b)
+{
+    const int n = qMin(a.size(), b.size());
+    if (n == 0)
+        return false;
+    for (int i = 0; i < n; i++)
+        if (a[i] != b[i])
+            return false;
+    return true;
+}
 
 /* Finished books straight from the firmware DB: completed_ts is set by the
  * firmware exactly on "mark as read" (DB trigger). Cover extraction is the
@@ -110,27 +134,46 @@ QList<FinishedBook> finishedBooks(bool withCovers)
     sqlite3 *db = openExplorer();
     if (!db)
         return out;
-    /* Dedupe by title: the same books appear multiple times in books_impl
-     * after delete/re-add. MIN(completed_ts) = first real finish date. */
+    /* One row per entry, oldest finish first; books_impl keeps stale rows
+     * after delete/re-add, so the merge below folds them together. */
     const char *sql =
-        "SELECT date(MIN(s.completed_ts),'unixepoch','localtime'),"
-        " MIN(IFNULL(b.title,'?'))"
+        "SELECT date(s.completed_ts,'unixepoch','localtime'), IFNULL(b.title,'?'),"
+        " EXISTS(SELECT 1 FROM files f WHERE f.book_id = b.id)"
         " FROM books_settings s JOIN books_impl b ON b.id = s.bookid"
         " WHERE s.completed = 1 AND s.completed_ts > 0"
-        " GROUP BY lower(trim(IFNULL(b.title,'?')))"
-        " ORDER BY 1"; /* oldest first */
+        " ORDER BY s.completed_ts";
     sqlite3_stmt *st = nullptr;
     if (sqlite3_prepare_v2(db, sql, -1, &st, nullptr) == SQLITE_OK) {
         while (sqlite3_step(st) == SQLITE_ROW) {
-            FinishedBook fb;
-            fb.day = QDate::fromString(
+            const QDate day = QDate::fromString(
                 QString::fromUtf8(reinterpret_cast<const char *>(
                     sqlite3_column_text(st, 0))),
                 Qt::ISODate);
-            fb.title = QString::fromUtf8(
+            if (!day.isValid())
+                continue;
+            const QString title = QString::fromUtf8(
                 reinterpret_cast<const char *>(sqlite3_column_text(st, 1)));
-            if (fb.day.isValid())
+            const bool hasFile = sqlite3_column_int(st, 2) != 0;
+            const QStringList words = titleWords(title);
+
+            int at = -1;
+            for (int i = 0; i < out.size() && at < 0; i++)
+                if (sameBook(out[i].words, words))
+                    at = i;
+            if (at < 0) {
+                FinishedBook fb;
+                fb.day = day; /* first row of a group = first finish date */
+                fb.title = title;
+                fb.words = words;
+                fb.hasFile = hasFile;
                 out.append(fb);
+            } else if (hasFile && !out[at].hasFile) {
+                /* the variant that still has a file wins: the cover lookup
+                 * matches on the exact title */
+                out[at].title = title;
+                out[at].words = words;
+                out[at].hasFile = true;
+            }
         }
     }
     sqlite3_finalize(st);
