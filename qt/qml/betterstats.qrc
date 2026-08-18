@@ -1,0 +1,14 @@
+<RCC>
+    <qresource prefix="/">
+        <file>qmldir</file>
+        <file>Tr.qml</file>
+        <file>main.qml</file>
+        <file>PanelDialog.qml</file>
+        <file>OverviewTab.qml</file>
+        <file>StreakTab.qml</file>
+        <file>CalendarTab.qml</file>
+        <file>YearTab.qml</file>
+        <file>betterstats.bmp</file>
+        <file>betterstats_f.bmp</file>
+    </qresource>
+</RCC>
