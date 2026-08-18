@@ -9,8 +9,9 @@ native UI components so it looks like it belongs on the device.
 > Allwinner **B288/B300** readers running Qt 6.8 firmware very likely work but are
 > untested — feedback welcome.
 
-<!-- Add screenshots to docs/ and reference them here, e.g.: -->
-<!-- ![Overview](docs/overview.png) ![Streak](docs/streak.png) -->
+| Overview | Streak | Calendar | Year |
+|:---:|:---:|:---:|:---:|
+| ![Overview](docs/overview.png) | ![Streak](docs/streak.png) | ![Calendar](docs/calendar.png) | ![Year](docs/year.png) |
 
 ## Features
 
