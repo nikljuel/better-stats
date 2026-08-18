@@ -58,6 +58,10 @@ static long q1(sqlite3 *db, const char *sql)
 
 int main(void)
 {
+    /* Fixed zone: the day-boundary logic is local-time based. */
+    setenv("TZ", "Europe/Berlin", 1);
+    tzset();
+
     sqlite3 *exp = make_explorer();
     unlink(ST_DB);
 
@@ -111,7 +115,8 @@ int main(void)
     assert(q1(t.stats, "SELECT COUNT(*) FROM sessions") == 3);
     assert(q1(t.stats, "SELECT active_seconds FROM sessions WHERE start_time=20000") == 1200);
     assert(q1(t.stats, "SELECT recovered FROM sessions WHERE start_time=20000") == 1);
-    assert(q1(t.stats, "SELECT pages_start FROM sessions WHERE start_time=20000") == 14);
+    /* Recovered = estimate: no pages_start, so it cannot skew pages/minute */
+    assert(q1(t.stats, "SELECT pages_start IS NULL FROM sessions WHERE start_time=20000") == 1);
     tracker_recover(&t); /* idempotent */
     assert(q1(t.stats, "SELECT COUNT(*) FROM sessions") == 3);
 
@@ -121,6 +126,31 @@ int main(void)
     assert(q1(t.stats, "SELECT active_seconds FROM sessions WHERE start_time=50000") ==
            RECOVERED_CAP_SECONDS);
 
+    /* Rows written by older versions get retrofitted on open */
+    ex(t.stats, "UPDATE sessions SET active_seconds=6*3600, pages_start=5"
+                " WHERE start_time=50000");
+    tracker_close(&t);
+    assert(tracker_init(&t, ST_DB, EXP_DB) == 0);
+    assert(q1(t.stats, "SELECT active_seconds FROM sessions WHERE start_time=50000") ==
+           RECOVERED_CAP_SECONDS);
+    assert(q1(t.stats, "SELECT pages_start IS NULL FROM sessions WHERE start_time=50000") == 1);
+
+    /* Session across local midnight is split so both days get their time */
+    set_state(exp, 82500, 82500, 20); /* 1970-01-01 23:55 CET */
+    assert(tracker_read_state(EXP_DB, &s) == 0);
+    assert(tracker_observe(&t, &s) == 1);
+    set_state(exp, 82500, 82900, 22); /* 1970-01-02 00:01:40 CET */
+    assert(tracker_read_state(EXP_DB, &s) == 0);
+    assert(tracker_observe(&t, &s) == 2);
+    assert(q1(t.stats, "SELECT active_seconds FROM sessions WHERE start_time=82500") == 300);
+    assert(q1(t.stats, "SELECT active_seconds FROM sessions WHERE start_time=82800") == 100);
+    assert(q1(t.stats, "SELECT date(end_time,'unixepoch','localtime')='1970-01-01'"
+                       " FROM sessions WHERE start_time=82500") == 1);
+    assert(q1(t.stats, "SELECT date(end_time,'unixepoch','localtime')='1970-01-02'"
+                       " FROM sessions WHERE start_time=82800") == 1);
+    /* the new row continues the page count instead of restarting it */
+    assert(q1(t.stats, "SELECT pages_start FROM sessions WHERE start_time=82800") == 22);
+
     /* stats_overall computes without crashing and plausibly */
     overall_stats o;
     ex(t.stats, "UPDATE books SET completed=1"); /* for the finished counter */
@@ -128,9 +158,22 @@ int main(void)
     assert(o.books_total == 1 && o.books_finished == 1);
     assert(o.total_hours > 0);
 
-    int secs[32];
-    struct tm *tm; time_t now = time(NULL); tm = localtime(&now);
-    stats_month(t.stats, tm->tm_year + 1900, tm->tm_mon + 1, secs);
+    /* Streak: anchored at today, one day of gap ends it, < 60 s/day never counts */
+    ex(t.stats, "DELETE FROM sessions");
+    ex(t.stats, "INSERT INTO sessions (book_id,start_time,end_time,active_seconds)"
+                " VALUES (7, strftime('%s','now','-2 days'),"
+                "            strftime('%s','now','-2 days'), 120)");
+    assert(stats_overall(t.stats, &o) == 0);
+    assert(o.streak_days == 0);
+    ex(t.stats, "DELETE FROM sessions");
+    ex(t.stats, "INSERT INTO sessions (book_id,start_time,end_time,active_seconds)"
+                " VALUES (7, strftime('%s','now'), strftime('%s','now'), 120),"
+                "        (7, strftime('%s','now','-1 days'),"
+                "            strftime('%s','now','-1 days'), 120),"
+                "        (7, strftime('%s','now','-2 days'),"
+                "            strftime('%s','now','-2 days'), 30)");
+    assert(stats_overall(t.stats, &o) == 0);
+    assert(o.streak_days == 2);
 
     tracker_close(&t);
     printf("all tracker tests ok\n");

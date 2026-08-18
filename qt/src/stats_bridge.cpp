@@ -63,7 +63,7 @@ QString resolveCoverUrl(sqlite3 *expdb, const QString &title)
         " lower(hex(f.fast_hash)), f.storageid || lower(hex(f.fast_hash))"
         " FROM books_impl b JOIN files f ON f.book_id = b.id"
         " LEFT JOIN folders fo ON fo.id = f.folder_id"
-        " WHERE lower(substr(b.title,1,12)) = lower(substr(?1,1,12))"
+        " WHERE lower(trim(b.title)) = lower(trim(?1))"
         " ORDER BY f.modification_time DESC, f.storageid ASC";
     sqlite3_stmt *st = nullptr;
     if (sqlite3_prepare_v2(expdb, sql, -1, &st, nullptr) != SQLITE_OK)
@@ -102,22 +102,22 @@ struct FinishedBook {
 };
 
 /* Finished books straight from the firmware DB: completed_ts is set by the
- * firmware exactly on "mark as read" (DB trigger). */
-QList<FinishedBook> finishedBooks()
+ * firmware exactly on "mark as read" (DB trigger). Cover extraction is the
+ * expensive part, so callers that only need dates/counts skip it. */
+QList<FinishedBook> finishedBooks(bool withCovers)
 {
     QList<FinishedBook> out;
     sqlite3 *db = openExplorer();
     if (!db)
         return out;
-    /* Dedupe by title prefix: the same books appear multiple times in
-     * books_impl after delete/re-add. MIN(completed_ts) = first real finish
-     * date. ponytail: prefix heuristic, exact matching only if needed. */
+    /* Dedupe by title: the same books appear multiple times in books_impl
+     * after delete/re-add. MIN(completed_ts) = first real finish date. */
     const char *sql =
         "SELECT date(MIN(s.completed_ts),'unixepoch','localtime'),"
         " MIN(IFNULL(b.title,'?'))"
         " FROM books_settings s JOIN books_impl b ON b.id = s.bookid"
         " WHERE s.completed = 1 AND s.completed_ts > 0"
-        " GROUP BY lower(substr(IFNULL(b.title,'?'),1,12))"
+        " GROUP BY lower(trim(IFNULL(b.title,'?')))"
         " ORDER BY 1"; /* oldest first */
     sqlite3_stmt *st = nullptr;
     if (sqlite3_prepare_v2(db, sql, -1, &st, nullptr) == SQLITE_OK) {
@@ -134,8 +134,10 @@ QList<FinishedBook> finishedBooks()
         }
     }
     sqlite3_finalize(st);
-    for (FinishedBook &fb : out)
-        fb.coverUrl = resolveCoverUrl(db, fb.title);
+    if (withCovers) {
+        for (FinishedBook &fb : out)
+            fb.coverUrl = resolveCoverUrl(db, fb.title);
+    }
     sqlite3_close(db);
     return out;
 }
@@ -155,12 +157,12 @@ QVariantMap StatsBridge::overall()
     m[QStringLiteral("totalHours")] = o.total_hours;
     /* Book counts deduplicated from the firmware DB rather than the tracking
      * DB (which counts each file copy separately). Total = current library. */
-    int finished = finishedBooks().size();
+    int finished = finishedBooks(false).size();
     int total = 0;
     if (sqlite3 *exp = openExplorer()) {
         sqlite3_stmt *st = nullptr;
         const char *sql =
-            "SELECT COUNT(DISTINCT lower(substr(IFNULL(b.title,'?'),1,12)))"
+            "SELECT COUNT(DISTINCT lower(trim(IFNULL(b.title,'?'))))"
             " FROM books_impl b JOIN files f ON f.book_id = b.id";
         if (sqlite3_prepare_v2(exp, sql, -1, &st, nullptr) == SQLITE_OK
                 && sqlite3_step(st) == SQLITE_ROW)
@@ -231,9 +233,9 @@ QVariantMap StatsBridge::year(int y)
     /* Lesetage */
     sqlite3_stmt *st = nullptr;
     const char *readSql =
-        "SELECT DISTINCT date(end_time,'unixepoch','localtime') FROM sessions"
-        " WHERE active_seconds > 0"
-        " AND strftime('%Y', end_time,'unixepoch','localtime') = printf('%04d',?1)";
+        "SELECT date(end_time,'unixepoch','localtime') d FROM sessions"
+        " WHERE strftime('%Y', end_time,'unixepoch','localtime') = printf('%04d',?1)"
+        " GROUP BY d HAVING SUM(active_seconds) >= 60";
     if (sqlite3_prepare_v2(db_, readSql, -1, &st, nullptr) == SQLITE_OK) {
         sqlite3_bind_int(st, 1, y);
         while (sqlite3_step(st) == SQLITE_ROW) {
@@ -248,14 +250,14 @@ QVariantMap StatsBridge::year(int y)
     sqlite3_finalize(st);
 
     /* Mark finish days (native marking from the firmware DB) */
-    const QList<FinishedBook> finished = finishedBooks();
+    const QList<FinishedBook> finished = finishedBooks(false);
     for (const FinishedBook &fb : finished) {
         if (fb.day.year() == y)
             heat[fb.day.dayOfYear() - 1] = 2;
     }
 
     /* Streaks */
-    int daysRead = 0, best = 0, run = 0, current = 0;
+    int daysRead = 0, best = 0, run = 0;
     QDate bestStart;
     for (int i = 0; i < ndays; i++) {
         if (heat[i] > 0) {
@@ -269,17 +271,13 @@ QVariantMap StatsBridge::year(int y)
             run = 0;
         }
     }
-    const QDate today = QDate::currentDate();
-    if (today.year() == y) {
-        int idx = today.dayOfYear() - 1;
-        /* current streak counts up to today; a still-empty today does not
-         * break the streak */
-        if (heat[idx] == 0)
-            idx--;
-        while (idx >= 0 && heat[idx] > 0) {
-            current++;
-            idx--;
-        }
+    /* Current streak comes from stats_overall(): reading days only, and not
+     * cut off at the year boundary like the per-year heat array would be. */
+    int current = 0;
+    if (QDate::currentDate().year() == y) {
+        overall_stats o;
+        stats_overall(db_, &o);
+        current = o.streak_days;
     }
 
     QVariantList heatList;
@@ -302,7 +300,7 @@ QVariantMap StatsBridge::yearBooks(int y)
     QVector<QVariantList> perMonth(13);
     int total = 0;
 
-    const QList<FinishedBook> finished = finishedBooks();
+    const QList<FinishedBook> finished = finishedBooks(true);
     for (const FinishedBook &fb : finished) {
         if (fb.day.year() != y)
             continue;
@@ -333,15 +331,16 @@ QVariantMap StatsBridge::month(int year, int mon)
     /* Per day: books with reading time, sorted descending. */
     QVector<QVariantList> perDay(ndays + 1);
     QVector<qlonglong> daySecs(ndays + 1, 0);
-    /* GROUP BY title prefix instead of book_id: the same books exist as
-     * several file copies and would otherwise appear twice. */
+    /* GROUP BY title instead of book_id: the same books exist as several file
+     * copies and would otherwise appear twice. */
     const char *sql =
         "SELECT CAST(strftime('%d', s.end_time,'unixepoch','localtime') AS INTEGER),"
         " MIN(IFNULL(b.title,'?')), MAX(IFNULL(b.cover,'')), SUM(s.active_seconds)"
         " FROM sessions s LEFT JOIN books b ON b.book_id = s.book_id"
         " WHERE strftime('%Y-%m', s.end_time,'unixepoch','localtime')"
-        "   = printf('%04d-%02d',?1,?2) AND s.active_seconds >= 60"
-        " GROUP BY 1, lower(substr(IFNULL(b.title,'?'),1,12))"
+        "   = printf('%04d-%02d',?1,?2)"
+        " GROUP BY 1, lower(trim(IFNULL(b.title,'?')))"
+        " HAVING SUM(s.active_seconds) >= 60"
         " ORDER BY 1, 4 DESC";
     sqlite3 *exp = openExplorer();
     QHash<QString, QString> coverCache; /* title -> URL, once per call */
