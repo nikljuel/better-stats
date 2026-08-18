@@ -1,6 +1,9 @@
 #include "tracker.h"
+#define STR_(x) #x
+#define STR(x) STR_(x)
 #include <stdio.h>
 #include <string.h>
+#include <time.h>
 
 static const char *SCHEMA =
     "CREATE TABLE IF NOT EXISTS sessions ("
@@ -17,6 +20,15 @@ static const char *SCHEMA =
     "  title TEXT, author TEXT, cover TEXT,"
     "  cpage INTEGER, npage INTEGER, completed INTEGER,"
     "  last_seen INTEGER);";
+
+/* Retrofits rows written by older versions: recovered spans were capped far
+ * too generously and carried a pages_start they had no measured time for.
+ * Idempotent, runs on every daemon start. */
+static const char *MIGRATE =
+    "UPDATE sessions SET pages_start = NULL"
+    " WHERE recovered = 1 AND pages_start IS NOT NULL;"
+    "UPDATE sessions SET active_seconds = " STR(RECOVERED_CAP_SECONDS)
+    " WHERE recovered = 1 AND active_seconds > " STR(RECOVERED_CAP_SECONDS) ";";
 
 static int exec1(sqlite3 *db, const char *sql)
 {
@@ -36,7 +48,9 @@ int tracker_init(tracker *t, const char *stats_path, const char *explorer_path)
     if (sqlite3_open(stats_path, &t->stats) != SQLITE_OK)
         return -1;
     sqlite3_busy_timeout(t->stats, 2000);
-    return exec1(t->stats, SCHEMA);
+    if (exec1(t->stats, SCHEMA) != 0)
+        return -1;
+    return exec1(t->stats, MIGRATE);
 }
 
 void tracker_close(tracker *t)
@@ -143,8 +157,21 @@ static int prev_pages_end(tracker *t, int64_t bookid, int64_t before)
     return val;
 }
 
-static void insert_session(tracker *t, const pb_state *s, int64_t active,
-                           int pages_start_known, int recovered)
+/* Local midnight (as epoch) of the day ts falls into. */
+static int64_t local_day_start(int64_t ts)
+{
+    time_t tt = (time_t)ts;
+    struct tm tm;
+    localtime_r(&tt, &tm);
+    tm.tm_hour = 0;
+    tm.tm_min = 0;
+    tm.tm_sec = 0;
+    tm.tm_isdst = -1;
+    return (int64_t)mktime(&tm);
+}
+
+static void insert_session(tracker *t, const pb_state *s, int64_t start_time,
+                           int64_t active, int pages_start_known, int recovered)
 {
     sqlite3_stmt *st = NULL;
     const char *sql =
@@ -154,10 +181,12 @@ static void insert_session(tracker *t, const pb_state *s, int64_t active,
     if (sqlite3_prepare_v2(t->stats, sql, -1, &st, NULL) != SQLITE_OK)
         return;
     sqlite3_bind_int64(st, 1, s->bookid);
-    sqlite3_bind_int64(st, 2, s->opentime);
+    sqlite3_bind_int64(st, 2, start_time);
     sqlite3_bind_int64(st, 3, s->position_ts);
     sqlite3_bind_int64(st, 4, active);
-    int ps = prev_pages_end(t, s->bookid, s->opentime);
+    /* Recovered rows get no pages_start: the pages were read while nothing was
+     * tracking, so the delta would not match the (capped) time. */
+    int ps = recovered ? -1 : prev_pages_end(t, s->bookid, start_time);
     if (ps < 0 && pages_start_known)
         ps = s->cpage; /* session just started: current page = start page */
     if (ps >= 0)
@@ -166,6 +195,25 @@ static void insert_session(tracker *t, const pb_state *s, int64_t active,
         sqlite3_bind_null(st, 5);
     sqlite3_bind_int(st, 6, s->cpage);
     sqlite3_bind_int(st, 7, recovered);
+    sqlite3_step(st);
+    sqlite3_finalize(st);
+}
+
+/* Adds active seconds to one session row and moves its end. */
+static void update_session(tracker *t, int64_t bookid, int64_t start_time,
+                           int64_t end_time, int64_t add_active, int pages_end)
+{
+    sqlite3_stmt *st = NULL;
+    const char *sql =
+        "UPDATE sessions SET end_time=?1, active_seconds=active_seconds+?2,"
+        " pages_end=?3 WHERE book_id=?4 AND start_time=?5";
+    if (sqlite3_prepare_v2(t->stats, sql, -1, &st, NULL) != SQLITE_OK)
+        return;
+    sqlite3_bind_int64(st, 1, end_time);
+    sqlite3_bind_int64(st, 2, add_active);
+    sqlite3_bind_int(st, 3, pages_end);
+    sqlite3_bind_int64(st, 4, bookid);
+    sqlite3_bind_int64(st, 5, start_time);
     sqlite3_step(st);
     sqlite3_finalize(st);
 }
@@ -197,7 +245,7 @@ int tracker_recover(tracker *t)
             span = 0;
         if (span > RECOVERED_CAP_SECONDS)
             span = RECOVERED_CAP_SECONDS;
-        insert_session(t, &s, span, 0, 1);
+        insert_session(t, &s, s.opentime, span, 0, 1);
         upsert_book(t, &s);
         n++;
     }
@@ -218,11 +266,12 @@ int tracker_observe(tracker *t, const pb_state *s)
             active = 0;
         if (active > IDLE_CAP_SECONDS)
             active = IDLE_CAP_SECONDS;
-        insert_session(t, s, active, 1, 0);
+        insert_session(t, s, s->opentime, active, 1, 0);
         upsert_book(t, s);
         t->cur_book = s->bookid;
         t->cur_open = s->opentime;
         t->cur_pos_ts = s->position_ts;
+        t->cur_row_start = s->opentime;
         return 1;
     }
 
@@ -230,19 +279,27 @@ int tracker_observe(tracker *t, const pb_state *s)
         int64_t gap = s->position_ts - t->cur_pos_ts;
         if (gap > IDLE_CAP_SECONDS)
             gap = IDLE_CAP_SECONDS;
-        sqlite3_stmt *st = NULL;
-        const char *sql =
-            "UPDATE sessions SET end_time=?1, active_seconds=active_seconds+?2,"
-            " pages_end=?3 WHERE book_id=?4 AND start_time=?5";
-        if (sqlite3_prepare_v2(t->stats, sql, -1, &st, NULL) == SQLITE_OK) {
-            sqlite3_bind_int64(st, 1, s->position_ts);
-            sqlite3_bind_int64(st, 2, gap);
-            sqlite3_bind_int(st, 3, s->cpage);
-            sqlite3_bind_int64(st, 4, s->bookid);
-            sqlite3_bind_int64(st, 5, s->opentime);
-            sqlite3_step(st);
-            sqlite3_finalize(st);
+
+        /* All day stats group by date(end_time), so a session must not carry
+         * time across a local midnight: split the row there. The counted window
+         * is [position_ts - gap, position_ts]. */
+        int64_t midnight = local_day_start(s->position_ts);
+        if (t->cur_pos_ts < midnight) {
+            int64_t before = midnight - (s->position_ts - gap);
+            if (before < 0)
+                before = 0;
+            if (before > gap)
+                before = gap;
+            if (before > 0)
+                update_session(t, s->bookid, t->cur_row_start, midnight - 1,
+                               before, s->cpage);
+            insert_session(t, s, midnight, 0, 0, 0);
+            t->cur_row_start = midnight;
+            gap -= before;
         }
+
+        update_session(t, s->bookid, t->cur_row_start, s->position_ts, gap,
+                       s->cpage);
         upsert_book(t, s);
         t->cur_pos_ts = s->position_ts;
         return 2;
