@@ -52,10 +52,12 @@ database and cover cache under `system/pbreadstats/`.
 
 ## Install
 
-1. Download `BetterStats.app` from the [latest release](../../releases/latest).
+1. Download the `.zip` from the [latest release](../../releases/latest) and
+   unzip it to get `BetterStats.app`.
 2. Connect your reader via USB and copy `BetterStats.app` into the
    `applications` folder (`/mnt/ext1/applications/`).
-3. Eject the reader and open **BetterStats** from the apps list.
+3. Eject the reader, open **BetterStats** once, then reboot the reader so the
+   custom icon appears in the apps list.
 
 On first launch the app installs its own launcher icon. To do this it adds one
 entry to `system/config/desktop/view.json` and saves a backup next to it
