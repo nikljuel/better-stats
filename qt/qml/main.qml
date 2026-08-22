@@ -21,6 +21,27 @@ Window {
 
         title: root.title
         onClose: Qt.quit()
+
+        // AppHeader 2.0 places child controls in its right-hand action row.
+        Item {
+            width: GlobalValues.defaultListItemHeight
+            height: GlobalValues.defaultListItemHeight
+
+            StyledText {
+                anchors.centerIn: parent
+                styledFont: FontStyles.Heading3
+                color: GlobalValues.defaultTextColor
+                text: "⚙"
+            }
+
+            MouseArea {
+                anchors.fill: parent
+                onClicked: {
+                    settingsDialog.refresh()
+                    settingsDialog.visible = true
+                }
+            }
+        }
     }
 
     // Firmware-style tab bar: four large zones, active tab underlined.
@@ -118,5 +139,76 @@ Window {
             anchors.fill: parent
             visible: tabBar.current === 3
         }
+    }
+
+    PanelDialog {
+        id: settingsDialog
+
+        title: Tr.t("Einstellungen", "Settings")
+        property var status: ({ enabled: false, available: false, message: "" })
+
+        function refresh() {
+            status = stats.autostartStatus()
+        }
+
+        SettingsBitmapTextSwitcher {
+            width: parent.width
+            height: GlobalValues.defaultListItemHeight
+            title: Tr.t("Autostart", "Autostart")
+            switch_value: settingsDialog.status.enabled === true
+            enabled: settingsDialog.status.available === true
+                     || settingsDialog.status.enabled === true
+            opacity: enabled ? 1 : 0.45
+
+            onAction: {
+                var wanted = !settingsDialog.status.enabled
+                var result = stats.setAutostartEnabled(wanted)
+                settingsDialog.status = result
+                if (result.enabled === wanted) {
+                    setupMessage.message = wanted
+                        ? Tr.t("Autostart aktiviert", "Autostart enabled")
+                        : Tr.t("Autostart deaktiviert", "Autostart disabled")
+                } else if (result.message === "KOReader association detected") {
+                    setupMessage.message = Tr.t(
+                        "KOReader erkannt. Die Unterstützung folgt in einem späteren Schritt.",
+                        "KOReader detected. Support will follow in a later step.")
+                } else {
+                    setupMessage.message = Tr.t(
+                        "Autostart konnte nicht geändert werden: ",
+                        "Could not change autostart: ") + (result.message || "?")
+                }
+                setupMessage.visible = true
+            }
+        }
+
+        StyledText {
+            width: parent.width
+            styledFont: FontStyles.BodyS
+            color: GlobalValues.defaultDisabledTextColor
+            wrapMode: Text.Wrap
+            text: Tr.t(
+                "Startet das Tracking automatisch beim Öffnen eines EPUBs – auch beim letzten Buch nach einem Neustart.",
+                "Starts tracking automatically when an EPUB opens, including the last book after a restart.")
+        }
+
+        StyledText {
+            visible: settingsDialog.status.message !== ""
+            width: parent.width
+            styledFont: FontStyles.BodyS
+            color: GlobalValues.defaultDisabledTextColor
+            wrapMode: Text.Wrap
+            text: settingsDialog.status.message === "KOReader association detected"
+                ? Tr.t("KOReader-Zuordnung erkannt; Autostart ist vorerst nicht verfügbar.",
+                       "KOReader association detected; autostart is not available yet.")
+                : settingsDialog.status.message
+        }
+    }
+
+    InfoMessage {
+        id: setupMessage
+
+        anchors.fill: parent
+        visible: false
+        onClose: setupMessage.visible = false
     }
 }

@@ -23,6 +23,9 @@ test:
 	cc $(CFLAGS) -o build/test_tracker test/test_tracker.c \
 	  src/tracker.c src/stats_db.c -lsqlite3
 	./build/test_tracker
+	c++ -O2 -Wall -Wextra -std=c++20 -Iqt/src -o build/test_file_handler_config \
+	  test/test_file_handler_config.cpp qt/src/file_handler_config.cpp
+	./build/test_file_handler_config
 
 # ---- Build the app (single ELF, links the device's Qt at runtime) ----
 qt:

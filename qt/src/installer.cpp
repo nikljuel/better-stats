@@ -1,10 +1,14 @@
 #include "installer.h"
 
+#include <QByteArray>
 #include <QDir>
 #include <QFile>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QSaveFile>
+
+#include "file_handler_config.h"
 
 namespace {
 
@@ -24,6 +28,15 @@ constexpr const char *kViewJson =
 constexpr const char *kBackup =
     "/mnt/ext1/system/config/desktop/view.json.betterstats-backup";
 constexpr const char *kAppId = "U_betterstats";
+constexpr const char *kSystemExtensions = "/ebrmain/config/extensions.cfg";
+constexpr const char *kUserExtensions = "/mnt/ext1/system/config/extensions.cfg";
+constexpr const char *kExtensionsBackup =
+    "/mnt/ext1/system/config/extensions.cfg.betterstats-backup";
+constexpr const char *kHandlerDir = "/mnt/ext1/system/bin";
+constexpr const char *kHandlerName = "betterstats-handler.app";
+constexpr const char *kHandlerPath =
+    "/mnt/ext1/system/bin/betterstats-handler.app";
+constexpr const char *kHandlerMarker = "# Better Stats EPUB autostart";
 
 // Copies an embedded resource to a path on the device if it isn't there yet.
 void writeResourceIfMissing(const QString &resource, const QString &dest)
@@ -95,6 +108,101 @@ void patchViewJson()
     f.close();
 }
 
+bool readFile(const char *path, QByteArray *out)
+{
+    QFile file{QLatin1String(path)};
+    if (!file.open(QIODevice::ReadOnly))
+        return false;
+    *out = file.readAll();
+    return true;
+}
+
+bool writeFile(const char *path, const QByteArray &data)
+{
+    QSaveFile file{QLatin1String(path)};
+    if (!file.open(QIODevice::WriteOnly))
+        return false;
+    if (file.write(data) != data.size())
+        return false;
+    return file.commit();
+}
+
+bool activeExtensions(QByteArray *data)
+{
+    const char *path = QFile::exists(QLatin1String(kUserExtensions))
+        ? kUserExtensions : kSystemExtensions;
+    return readFile(path, data);
+}
+
+EpubHandlerConfigResult inspectConfig(const QByteArray &data, bool enable)
+{
+    return patchEpubHandlerConfig(
+        std::string_view(data.constData(), size_t(data.size())),
+        kHandlerName, enable);
+}
+
+QByteArray installedHandler()
+{
+    QByteArray data;
+    readFile(kHandlerPath, &data);
+    return data;
+}
+
+/* The daemon is backgrounded, then the shell *becomes* the stock reader via
+ * exec: same pid, same task slot the firmware already created, no orphaned
+ * child. If the daemon line fails for any reason the exec still runs, so a
+ * book can never be blocked by the tracking hook. */
+QByteArray handlerScript(const std::string &stockHandler)
+{
+    return QByteArrayLiteral(
+        "#!/bin/sh\n"
+        "# Better Stats EPUB autostart\n"
+        "app=\"/mnt/ext1/applications/BetterStats.app\"\n"
+            "reader=\"/ebrmain/bin/")
+        + QByteArray::fromStdString(stockReaderBinary(stockHandler))
+        + QByteArrayLiteral(
+            "\"\n"
+            "[ -x \"$app\" ] && \"$app\" --daemon </dev/null >/dev/null 2>&1 &\n"
+            "exec \"$reader\" \"$@\"\n");
+}
+
+bool writeHandlerScript(const std::string &stockHandler)
+{
+    if (!QDir().mkpath(QLatin1String(kHandlerDir)))
+        return false;
+    if (!writeFile(kHandlerPath, handlerScript(stockHandler)))
+        return false;
+    const QFile::Permissions perms = QFileDevice::ReadOwner | QFileDevice::WriteOwner
+        | QFileDevice::ExeOwner | QFileDevice::ReadGroup | QFileDevice::ExeGroup
+        | QFileDevice::ReadOther | QFileDevice::ExeOther;
+    QFile::setPermissions(QLatin1String(kHandlerPath), perms);
+    return true; // vfat may ignore chmod while still mounting every file executable
+}
+
+bool ensureExtensionsBackup(const QByteArray &original)
+{
+    if (QFile::exists(QLatin1String(kExtensionsBackup)))
+        return true;
+    return writeFile(kExtensionsBackup, original);
+}
+
+/* An update ships a corrected handler script. Rewrite ours in place so an
+ * autostart switched on by an older version does not stay broken. */
+void refreshHandlerScript()
+{
+    const QByteArray installed = installedHandler();
+    if (!installed.contains(kHandlerMarker))
+        return; // not installed, or not ours to touch
+    QByteArray config;
+    if (!activeExtensions(&config))
+        return;
+    const EpubHandlerConfigResult inspected = inspectConfig(config, false);
+    if (!inspected.ok || inspected.stockHandler.empty())
+        return;
+    if (installed != handlerScript(inspected.stockHandler))
+        writeHandlerScript(inspected.stockHandler);
+}
+
 } // namespace
 
 void ensureRegistered()
@@ -105,4 +213,87 @@ void ensureRegistered()
     writeResourceIfMissing(QStringLiteral(":/betterstats_f.bmp"),
                            QLatin1String(kIconFocusedPath));
     patchViewJson();
+    refreshHandlerScript();
+}
+
+AutostartStatus autostartStatus()
+{
+    AutostartStatus status;
+    QByteArray config;
+    if (!activeExtensions(&config)) {
+        status.message = QStringLiteral("EPUB handler configuration is unavailable");
+        return status;
+    }
+
+    const EpubHandlerConfigResult inspected = inspectConfig(config, false);
+    if (!inspected.ok) {
+        status.message = QString::fromStdString(inspected.error);
+        return status;
+    }
+    const QByteArray handler = installedHandler();
+    const bool handlerExists = QFile::exists(QLatin1String(kHandlerPath));
+    const bool owned = handler.contains("# Better Stats");
+    status.enabled = inspected.handlerPresent && handler.contains(kHandlerMarker);
+    status.available = !inspected.koreaderPresent
+        && (!handlerExists || owned);
+    if (inspected.koreaderPresent)
+        status.message = QStringLiteral("KOReader association detected");
+    else if (handlerExists && !owned)
+        status.message = QStringLiteral("EPUB handler path is already in use");
+    else if (inspected.handlerPresent && !status.enabled)
+        status.message = QStringLiteral("Better Stats EPUB handler is missing");
+    return status;
+}
+
+AutostartStatus setAutostartEnabled(bool enabled)
+{
+    QByteArray original;
+    if (!activeExtensions(&original)) {
+        AutostartStatus status;
+        status.message = QStringLiteral("EPUB handler configuration is unavailable");
+        return status;
+    }
+
+    const EpubHandlerConfigResult patched = inspectConfig(original, enabled);
+    if (!patched.ok) {
+        AutostartStatus status;
+        status.message = QString::fromStdString(patched.error);
+        return status;
+    }
+    if (enabled && patched.koreaderPresent) {
+        AutostartStatus status;
+        status.message = QStringLiteral("KOReader association detected");
+        return status;
+    }
+
+    const QByteArray installed = installedHandler();
+    if (enabled && QFile::exists(QLatin1String(kHandlerPath))
+        && !installed.contains("# Better Stats")) {
+        AutostartStatus status;
+        status.message = QStringLiteral("EPUB handler path is already in use");
+        return status;
+    }
+
+    if (enabled && !writeHandlerScript(patched.stockHandler)) {
+        AutostartStatus status;
+        status.message = QStringLiteral("Could not install EPUB handler");
+        return status;
+    }
+
+    if (patched.changed) {
+        if (!ensureExtensionsBackup(original)) {
+            AutostartStatus status;
+            status.message = QStringLiteral("Could not create extensions.cfg backup");
+            return status;
+        }
+        if (!writeFile(kUserExtensions, QByteArray::fromStdString(patched.output))) {
+            AutostartStatus status;
+            status.message = QStringLiteral("Could not restore extensions.cfg");
+            return status;
+        }
+    }
+
+    if (!enabled && installed.contains("# Better Stats"))
+        QFile::remove(QLatin1String(kHandlerPath));
+    return autostartStatus();
 }

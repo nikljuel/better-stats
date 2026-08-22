@@ -32,6 +32,8 @@ native UI components so it looks like it belongs on the device.
   cache is sometimes wrong for sideloaded/Calibre books).
 - **Bilingual** — German by default, English automatically when the device
   language isn't German.
+- **Optional EPUB autostart** — starts tracking before the stock reader opens,
+  including when the firmware restores the last book after a reboot.
 
 ## How it works
 
@@ -39,8 +41,22 @@ A small background daemon (bundled in the same binary) polls the firmware's
 library database (`explorer-3.db`) **read-only** every 30 seconds and derives
 reading sessions from the book's open time and last position update. Idle gaps
 (standby, long pauses) are capped so they don't count as reading time. If the
-daemon wasn't running, the last session per book is reconstructed on the next
-launch from what the firmware stored, so nothing is silently lost.
+daemon wasn't running, Better Stats reconstructs a best-effort estimate of the
+last session per book on the next launch. The firmware does not retain enough
+timestamps for an exact reconstruction, so short sessions or pauses can still
+be missed.
+
+The optional **Autostart** switch in Better Stats' settings installs a small
+EPUB file handler: a shell script that backgrounds the daemon and then `exec`s
+the stock reader, so it *becomes* the reader in the same process and task slot
+the firmware already created. If the daemon fails to start for any reason the
+`exec` still runs, so the tracking hook can never keep a book from opening. PDF
+and other file types are unchanged. KOReader associations are detected but
+deliberately left untouched for now.
+
+Note that the `eink-reader_with_<engine>.app` names in `extensions.cfg` are
+virtual — only `/ebrmain/bin/eink-reader.app` exists on disk — so the handler
+resolves the name to that binary and passes no engine flag.
 
 "Finished" books come from the firmware's own *mark as read* flag, so they match
 what you see in the Library.
@@ -48,8 +64,10 @@ what you see in the Library.
 ## Privacy
 
 Everything stays on the device. No network access, no account, no telemetry.
-Better Stats only **reads** the firmware database; it writes only its own stats
-database and cover cache under `system/pbreadstats/`.
+Better Stats only **reads** the firmware database. It writes its own stats
+database and cover cache under `system/pbreadstats/`; if Autostart is enabled,
+it also creates a marked EPUB handler under `system/bin/` and updates the user
+`extensions.cfg` (with a backup created before the first change).
 
 ## Install
 
@@ -60,14 +78,19 @@ database and cover cache under `system/pbreadstats/`.
 3. Eject the reader, open **BetterStats** once, then reboot the reader so the
    custom icon appears in the apps list.
 
+To track automatically, open the gear menu in Better Stats and enable
+**Autostart**. It is off by default and adds a marked Better Stats handler ahead
+of the stock EPUB reader. An existing third-party handler is never overwritten.
+
 On first launch the app installs its own launcher icon. To do this it adds one
 entry to `system/config/desktop/view.json` and saves a backup next to it
 (`view.json.betterstats-backup`). The custom icon then appears after the reader
 rescans its apps (reboot if needed). If you'd rather not have the config touched,
 the app still runs fine — it just uses the default user-app icon.
 
-To uninstall: delete `applications/BetterStats.app`. To also remove the icon
-entry, restore `view.json` from the backup (or delete the `U_betterstats` entry).
+To uninstall, first turn off **Autostart**, then delete
+`applications/BetterStats.app`. To also remove the icon entry, restore
+`view.json` from the backup (or delete the `U_betterstats` entry).
 
 ## Building
 
@@ -89,5 +112,5 @@ MIT — see [LICENSE](LICENSE).
 ## Disclaimer
 
 Not affiliated with PocketBook. Use at your own risk. It only reads the firmware
-database and makes a single, backed-up edit to the launcher config for the icon,
-but you are installing third-party software on your device.
+database. Its optional configuration edits are backed up, but you are
+installing third-party software on your device.

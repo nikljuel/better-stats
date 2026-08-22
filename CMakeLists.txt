@@ -13,6 +13,7 @@ pocketbook_add_app(BetterStats
     qt/src/stats_bridge.cpp
     qt/src/epub_cover.cpp
     qt/src/installer.cpp
+    qt/src/file_handler_config.cpp
     src/tracker.c
     src/stats_db.c
     src/daemon.c

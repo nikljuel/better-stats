@@ -9,6 +9,7 @@
 #include <QVector>
 
 #include "epub_cover.h"
+#include "installer.h"
 
 extern "C" {
 #include "daemon.h"
@@ -186,6 +187,29 @@ QList<FinishedBook> finishedBooks(bool withCovers)
 }
 
 } // namespace
+
+namespace {
+
+QVariantMap autostartMap(const AutostartStatus &status)
+{
+    QVariantMap out;
+    out[QStringLiteral("enabled")] = status.enabled;
+    out[QStringLiteral("available")] = status.available;
+    out[QStringLiteral("message")] = status.message;
+    return out;
+}
+
+} // namespace
+
+QVariantMap StatsBridge::autostartStatus()
+{
+    return autostartMap(::autostartStatus());
+}
+
+QVariantMap StatsBridge::setAutostartEnabled(bool enabled)
+{
+    return autostartMap(::setAutostartEnabled(enabled));
+}
 
 QVariantMap StatsBridge::overall()
 {

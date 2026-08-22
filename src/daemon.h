@@ -4,7 +4,8 @@
 #define EXPLORER_DB "/mnt/ext1/system/explorer-3/explorer-3.db"
 #define STATS_DIR "/mnt/ext1/system/pbreadstats"
 #define STATS_DB STATS_DIR "/betterstats.db"
-#define PIDFILE STATS_DIR "/betterstats.pid"
+#define PIDFILE "/tmp/betterstats.pid"
+#define LEGACY_PIDFILE STATS_DIR "/betterstats.pid"
 #define COVER_DIR "/mnt/ext1/system/cover_chache/hashed"
 
 #ifdef __cplusplus
