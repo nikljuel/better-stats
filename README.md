@@ -61,6 +61,10 @@ resolves the name to that binary and passes no engine flag.
 "Finished" books come from the firmware's own *mark as read* flag, so they match
 what you see in the Library.
 
+When an update needs to repair existing session rows, Better Stats copies the
+database to `betterstats.db.premigration` under `system/pbreadstats/` before
+touching anything, so a bad repair is always recoverable.
+
 ## Privacy
 
 Everything stays on the device. No network access, no account, no telemetry.
