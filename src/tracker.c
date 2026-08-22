@@ -28,7 +28,13 @@ static const char *MIGRATE =
     "UPDATE sessions SET pages_start = NULL"
     " WHERE recovered = 1 AND pages_start IS NOT NULL;"
     "UPDATE sessions SET active_seconds = " STR(RECOVERED_CAP_SECONDS)
-    " WHERE recovered = 1 AND active_seconds > " STR(RECOVERED_CAP_SECONDS) ";";
+    " WHERE recovered = 1 AND active_seconds > " STR(RECOVERED_CAP_SECONDS) ";"
+    /* Rows written before position_ts was clamped: a stale position_ts ended
+     * the session before its start and inflated active_seconds by up to one
+     * IDLE_CAP. Active time can never exceed the row's own span. */
+    "UPDATE sessions SET end_time = start_time WHERE end_time < start_time;"
+    "UPDATE sessions SET active_seconds = end_time - start_time"
+    " WHERE active_seconds > end_time - start_time;";
 
 static int exec1(sqlite3 *db, const char *sql)
 {
@@ -89,6 +95,13 @@ static void fill_state(sqlite3_stmt *st, pb_state *out)
     out->bookid = sqlite3_column_int64(st, 0);
     out->opentime = sqlite3_column_int64(st, 1);
     out->position_ts = sqlite3_column_int64(st, 2);
+    /* The firmware stamps opentime when the book opens but only refreshes
+     * position_ts on a page turn, so between the two position_ts still holds
+     * the *previous* session's value. Reading it raw ends a session before it
+     * started and makes the first page turn look like a huge gap. Clamp once
+     * here, where both readers pass through. */
+    if (out->position_ts < out->opentime)
+        out->position_ts = out->opentime;
     out->cpage = sqlite3_column_int(st, 3);
     out->npage = sqlite3_column_int(st, 4);
     out->completed = sqlite3_column_int(st, 5);

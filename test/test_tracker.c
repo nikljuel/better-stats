@@ -126,6 +126,37 @@ int main(void)
     assert(q1(t.stats, "SELECT active_seconds FROM sessions WHERE start_time=50000") ==
            RECOVERED_CAP_SECONDS);
 
+    /* Stale position_ts: the firmware stamps opentime on open but refreshes
+     * position_ts only on a page turn, so it still holds the previous
+     * session's value. A recovered row must not end before it started. */
+    set_state(exp, 100000, 99000, 70);
+    tracker_recover(&t);
+    assert(q1(t.stats, "SELECT end_time FROM sessions WHERE start_time=100000") == 100000);
+    assert(q1(t.stats, "SELECT active_seconds FROM sessions WHERE start_time=100000") == 0);
+
+    /* Same staleness live: the daemon starts mid-session, then the first page
+     * turn must count only the time since opentime -- not the whole bogus gap
+     * back to the stale position_ts (which would land at IDLE_CAP). */
+    set_state(exp, 200000, 199000, 80);
+    assert(tracker_read_state(EXP_DB, &s) == 0);
+    assert(s.position_ts == 200000); /* clamped on read */
+    assert(tracker_observe(&t, &s) == 1);
+    assert(q1(t.stats, "SELECT active_seconds FROM sessions WHERE start_time=200000") == 0);
+    set_state(exp, 200000, 200120, 82);
+    assert(tracker_read_state(EXP_DB, &s) == 0);
+    assert(tracker_observe(&t, &s) == 2);
+    assert(q1(t.stats, "SELECT active_seconds FROM sessions WHERE start_time=200000") == 120);
+
+    /* Legacy rows carrying that damage are repaired on the next open */
+    ex(t.stats, "INSERT INTO sessions (book_id,start_time,end_time,active_seconds)"
+                " VALUES (7, 300000, 299000, 600)");
+    tracker_close(&t);
+    assert(tracker_init(&t, ST_DB, EXP_DB) == 0);
+    assert(q1(t.stats, "SELECT end_time FROM sessions WHERE start_time=300000") == 300000);
+    assert(q1(t.stats, "SELECT active_seconds FROM sessions WHERE start_time=300000") == 0);
+    /* and the clean rows above survive the migration untouched */
+    assert(q1(t.stats, "SELECT active_seconds FROM sessions WHERE start_time=200000") == 120);
+
     /* Rows written by older versions get retrofitted on open */
     ex(t.stats, "UPDATE sessions SET active_seconds=6*3600, pages_start=5"
                 " WHERE start_time=50000");
