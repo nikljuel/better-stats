@@ -151,64 +151,29 @@ Window {
             status = stats.autostartStatus()
         }
 
-        SettingsBitmapTextSwitcher {
-            width: parent.width
-            height: GlobalValues.defaultListItemHeight
-            title: Tr.t("Autostart", "Autostart")
-            switch_value: settingsDialog.status.enabled === true
-            enabled: settingsDialog.status.available === true
-                     || settingsDialog.status.enabled === true
-            opacity: enabled ? 1 : 0.45
-
-            onAction: {
-                var wanted = !settingsDialog.status.enabled
-                var result = stats.setAutostartEnabled(wanted)
-                settingsDialog.status = result
-                if (result.enabled === wanted) {
-                    setupMessage.message = wanted
-                        ? Tr.t("Autostart aktiviert", "Autostart enabled")
-                        : Tr.t("Autostart deaktiviert", "Autostart disabled")
-                } else if (result.message === "KOReader association detected") {
-                    setupMessage.message = Tr.t(
-                        "KOReader erkannt. Die Unterstützung folgt in einem späteren Schritt.",
-                        "KOReader detected. Support will follow in a later step.")
-                } else {
-                    setupMessage.message = Tr.t(
-                        "Autostart konnte nicht geändert werden: ",
-                        "Could not change autostart: ") + (result.message || "?")
-                }
-                setupMessage.visible = true
-            }
-        }
-
         StyledText {
             width: parent.width
             styledFont: FontStyles.BodyS
             color: GlobalValues.defaultDisabledTextColor
             wrapMode: Text.Wrap
-            text: Tr.t(
-                "Startet das Tracking automatisch beim Öffnen eines EPUBs – auch beim letzten Buch nach einem Neustart.",
-                "Starts tracking automatically when an EPUB opens, including the last book after a restart.")
+            text: settingsDialog.status.enabled === true
+                ? Tr.t("Tracking läuft automatisch, sobald ein EPUB geöffnet wird – auch beim letzten Buch nach einem Neustart.",
+                       "Tracking runs automatically when an EPUB opens, including the last book after a restart.")
+                : Tr.t("Tracking läuft nur, solange Better Stats geöffnet ist.",
+                       "Tracking only runs while Better Stats is open.")
         }
 
         StyledText {
-            visible: settingsDialog.status.message !== ""
+            visible: settingsDialog.status.enabled !== true
+                     && settingsDialog.status.message !== ""
             width: parent.width
             styledFont: FontStyles.BodyS
             color: GlobalValues.defaultDisabledTextColor
             wrapMode: Text.Wrap
             text: settingsDialog.status.message === "KOReader association detected"
-                ? Tr.t("KOReader-Zuordnung erkannt; Autostart ist vorerst nicht verfügbar.",
-                       "KOReader association detected; autostart is not available yet.")
-                : settingsDialog.status.message
+                ? Tr.t("Grund: KOReader ist als EPUB-Reader eingetragen. Die Unterstützung folgt später.",
+                       "Reason: KOReader is registered as the EPUB reader. Support will follow later.")
+                : Tr.t("Grund: ", "Reason: ") + settingsDialog.status.message
         }
-    }
-
-    InfoMessage {
-        id: setupMessage
-
-        anchors.fill: parent
-        visible: false
-        onClose: setupMessage.visible = false
     }
 }

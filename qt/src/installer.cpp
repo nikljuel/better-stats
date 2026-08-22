@@ -168,9 +168,12 @@ QByteArray handlerScript(const std::string &stockHandler)
 
 bool writeHandlerScript(const std::string &stockHandler)
 {
+    const QByteArray wanted = handlerScript(stockHandler);
+    if (installedHandler() == wanted)
+        return true; // already current; don't rewrite flash on every launch
     if (!QDir().mkpath(QLatin1String(kHandlerDir)))
         return false;
-    if (!writeFile(kHandlerPath, handlerScript(stockHandler)))
+    if (!writeFile(kHandlerPath, wanted))
         return false;
     const QFile::Permissions perms = QFileDevice::ReadOwner | QFileDevice::WriteOwner
         | QFileDevice::ExeOwner | QFileDevice::ReadGroup | QFileDevice::ExeGroup
@@ -186,23 +189,6 @@ bool ensureExtensionsBackup(const QByteArray &original)
     return writeFile(kExtensionsBackup, original);
 }
 
-/* An update ships a corrected handler script. Rewrite ours in place so an
- * autostart switched on by an older version does not stay broken. */
-void refreshHandlerScript()
-{
-    const QByteArray installed = installedHandler();
-    if (!installed.contains(kHandlerMarker))
-        return; // not installed, or not ours to touch
-    QByteArray config;
-    if (!activeExtensions(&config))
-        return;
-    const EpubHandlerConfigResult inspected = inspectConfig(config, false);
-    if (!inspected.ok || inspected.stockHandler.empty())
-        return;
-    if (installed != handlerScript(inspected.stockHandler))
-        writeHandlerScript(inspected.stockHandler);
-}
-
 } // namespace
 
 void ensureRegistered()
@@ -213,7 +199,11 @@ void ensureRegistered()
     writeResourceIfMissing(QStringLiteral(":/betterstats_f.bmp"),
                            QLatin1String(kIconFocusedPath));
     patchViewJson();
-    refreshHandlerScript();
+    /* Tracking is the whole point of the app and only works with the handler in
+     * place, so it is set up on first launch instead of being a switch. Silent
+     * and idempotent: it keeps its hands off a KOReader or third-party EPUB
+     * association, and a failure just means no autostart. */
+    setAutostartEnabled(true);
 }
 
 AutostartStatus autostartStatus()

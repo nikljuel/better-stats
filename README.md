@@ -32,7 +32,7 @@ native UI components so it looks like it belongs on the device.
   cache is sometimes wrong for sideloaded/Calibre books).
 - **Bilingual** — German by default, English automatically when the device
   language isn't German.
-- **Optional EPUB autostart** — starts tracking before the stock reader opens,
+- **Automatic tracking** — starts before the stock reader opens a book,
   including when the firmware restores the last book after a reboot.
 
 ## How it works
@@ -46,8 +46,7 @@ last session per book on the next launch. The firmware does not retain enough
 timestamps for an exact reconstruction, so short sessions or pauses can still
 be missed.
 
-The optional **Autostart** switch in Better Stats' settings installs a small
-EPUB file handler: a shell script that backgrounds the daemon and then `exec`s
+Autostart installs a small EPUB file handler: a shell script that backgrounds the daemon and then `exec`s
 the stock reader, so it *becomes* the reader in the same process and task slot
 the firmware already created. If the daemon fails to start for any reason the
 `exec` still runs, so the tracking hook can never keep a book from opening. PDF
@@ -82,9 +81,13 @@ it also creates a marked EPUB handler under `system/bin/` and updates the user
 3. Eject the reader, open **BetterStats** once, then reboot the reader so the
    custom icon appears in the apps list.
 
-To track automatically, open the gear menu in Better Stats and enable
-**Autostart**. It is off by default and adds a marked Better Stats handler ahead
-of the stock EPUB reader. An existing third-party handler is never overwritten.
+On first launch Better Stats also sets up EPUB autostart, because the daemon is
+otherwise only running while the app itself is open. It writes a marked handler
+to `system/bin/` and puts it ahead of the stock reader in the user
+`extensions.cfg`, backing that file up first
+(`extensions.cfg.betterstats-backup`). PDF and other file types are untouched,
+and an existing KOReader or third-party EPUB association is left alone. Reboot
+the reader once for the change to take effect.
 
 On first launch the app installs its own launcher icon. To do this it adds one
 entry to `system/config/desktop/view.json` and saves a backup next to it
@@ -92,9 +95,13 @@ entry to `system/config/desktop/view.json` and saves a backup next to it
 rescans its apps (reboot if needed). If you'd rather not have the config touched,
 the app still runs fine — it just uses the default user-app icon.
 
-To uninstall, first turn off **Autostart**, then delete
-`applications/BetterStats.app`. To also remove the icon entry, restore
-`view.json` from the backup (or delete the `U_betterstats` entry).
+To uninstall, delete `applications/BetterStats.app`. Books keep opening either
+way — the handler skips a missing app and execs the stock reader regardless — but
+to remove every trace, also delete `system/bin/betterstats-handler.app`, restore
+`system/config/extensions.cfg` from `extensions.cfg.betterstats-backup`, and
+restore `view.json` from its backup (or drop the `U_betterstats` entry). Your
+statistics live in `system/pbreadstats/` and are only removed if you delete that
+folder.
 
 ## Building
 

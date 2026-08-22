@@ -19,7 +19,6 @@ public:
     Q_INVOKABLE QVariantMap year(int y);
     Q_INVOKABLE QVariantMap yearBooks(int y);
     Q_INVOKABLE QVariantMap autostartStatus();
-    Q_INVOKABLE QVariantMap setAutostartEnabled(bool enabled);
 
 private:
     sqlite3 *db_ = nullptr;

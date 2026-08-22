@@ -206,11 +206,6 @@ QVariantMap StatsBridge::autostartStatus()
     return autostartMap(::autostartStatus());
 }
 
-QVariantMap StatsBridge::setAutostartEnabled(bool enabled)
-{
-    return autostartMap(::setAutostartEnabled(enabled));
-}
-
 QVariantMap StatsBridge::overall()
 {
     overall_stats o;
