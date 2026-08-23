@@ -225,9 +225,12 @@ AutostartStatus autostartStatus()
     const bool owned = handler.contains("# Better Stats");
     status.enabled = inspected.handlerPresent && handler.contains(kHandlerMarker);
     status.available = !inspected.koreaderPresent
+        && inspected.foreignFirstHandler.empty()
         && (!handlerExists || owned);
     if (inspected.koreaderPresent)
         status.message = QStringLiteral("KOReader association detected");
+    else if (!inspected.foreignFirstHandler.empty())
+        status.message = QStringLiteral("Another EPUB reader is registered");
     else if (handlerExists && !owned)
         status.message = QStringLiteral("EPUB handler path is already in use");
     else if (inspected.handlerPresent && !status.enabled)
@@ -250,9 +253,16 @@ AutostartStatus setAutostartEnabled(bool enabled)
         status.message = QString::fromStdString(patched.error);
         return status;
     }
-    if (enabled && patched.koreaderPresent) {
+    /* Somebody else owns the EPUB association. Stepping in front of them would
+     * silently route books to the stock reader instead of the reader the user
+     * picked, so leave the list exactly as it is. KOReader bows out even when
+     * it is not first, until Better Stats can actually track it. */
+    if (enabled
+        && (patched.koreaderPresent || !patched.foreignFirstHandler.empty())) {
         AutostartStatus status;
-        status.message = QStringLiteral("KOReader association detected");
+        status.message = patched.koreaderPresent
+            ? QStringLiteral("KOReader association detected")
+            : QStringLiteral("Another EPUB reader is registered");
         return status;
     }
 

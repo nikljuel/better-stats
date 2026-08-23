@@ -106,11 +106,15 @@ EpubHandlerConfigResult patchEpubHandlerConfig(std::string_view input,
             for (const std::string &app : apps) {
                 if (app == handlerName)
                     result.handlerPresent = true;
-                if (equalsIgnoreCase(app, "koreader.app"))
+                if (equalsIgnoreCase(app, "koreader.app")
+                    || equalsIgnoreCase(app, "koreader"))
                     result.koreaderPresent = true;
                 if (result.stockHandler.empty() && isStockReader(app))
                     result.stockHandler = app;
             }
+            if (!apps.empty() && apps.front() != handlerName
+                && !isStockReader(apps.front()))
+                result.foreignFirstHandler = apps.front();
             if (enable && result.stockHandler.empty()) {
                 result.error = "No native EPUB reader found";
                 return result;

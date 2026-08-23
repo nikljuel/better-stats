@@ -173,6 +173,9 @@ Window {
             text: settingsDialog.status.message === "KOReader association detected"
                 ? Tr.t("Grund: KOReader ist als EPUB-Reader eingetragen. Die Unterstützung folgt später.",
                        "Reason: KOReader is registered as the EPUB reader. Support will follow later.")
+                : settingsDialog.status.message === "Another EPUB reader is registered"
+                ? Tr.t("Grund: Ein anderer Reader ist für EPUBs eingetragen. Better Stats lässt ihn unangetastet.",
+                       "Reason: another reader is registered for EPUBs. Better Stats leaves it alone.")
                 : Tr.t("Grund: ", "Reason: ") + settingsDialog.status.message
         }
     }

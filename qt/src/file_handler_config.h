@@ -8,6 +8,9 @@ struct EpubHandlerConfigResult {
     bool changed = false;
     bool handlerPresent = false;
     bool koreaderPresent = false;
+    /* First app in the list when it is neither ours nor a native eink-reader:
+     * somebody else owns the EPUB association and we must not step in front. */
+    std::string foreignFirstHandler;
     std::string stockHandler;
     std::string output;
     std::string error;

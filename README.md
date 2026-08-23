@@ -82,7 +82,8 @@ otherwise only running while the app itself is open. It writes a marked handler
 to `system/bin/` and puts it ahead of the stock reader in the user
 `extensions.cfg`, backing that file up first
 (`extensions.cfg.betterstats-backup`). PDF and other file types are untouched,
-and an existing KOReader or third-party EPUB association is left alone. Reboot
+and any reader that already holds the first slot for EPUBs -- KOReader or
+anything else -- is left alone, so it keeps opening your books. Reboot
 the reader once for the change to take effect.
 
 On first launch the app installs its own launcher icon. To do this it adds one
