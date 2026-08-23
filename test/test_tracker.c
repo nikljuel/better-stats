@@ -147,26 +147,6 @@ int main(void)
     assert(tracker_observe(&t, &s) == 2);
     assert(q1(t.stats, "SELECT active_seconds FROM sessions WHERE start_time=200000") == 120);
 
-    /* Legacy rows carrying that damage are repaired on the next open, and the
-     * database is copied aside first because that repair cannot be undone. */
-    ex(t.stats, "INSERT INTO sessions (book_id,start_time,end_time,active_seconds)"
-                " VALUES (7, 300000, 299000, 600)");
-    tracker_close(&t);
-    unlink(ST_DB ".premigration");
-    assert(tracker_init(&t, ST_DB, EXP_DB) == 0);
-    {
-        sqlite3 *bak = NULL;
-        assert(sqlite3_open(ST_DB ".premigration", &bak) == SQLITE_OK);
-        /* the backup still holds the row exactly as it was */
-        assert(q1(bak, "SELECT end_time FROM sessions WHERE start_time=300000") == 299000);
-        assert(q1(bak, "SELECT active_seconds FROM sessions WHERE start_time=300000") == 600);
-        sqlite3_close(bak);
-    }
-    assert(q1(t.stats, "SELECT end_time FROM sessions WHERE start_time=300000") == 300000);
-    assert(q1(t.stats, "SELECT active_seconds FROM sessions WHERE start_time=300000") == 0);
-    /* and the clean rows above survive the migration untouched */
-    assert(q1(t.stats, "SELECT active_seconds FROM sessions WHERE start_time=200000") == 120);
-
     /* Rows written by older versions get retrofitted on open */
     ex(t.stats, "UPDATE sessions SET active_seconds=6*3600, pages_start=5"
                 " WHERE start_time=50000");
@@ -175,12 +155,6 @@ int main(void)
     assert(q1(t.stats, "SELECT active_seconds FROM sessions WHERE start_time=50000") ==
            RECOVERED_CAP_SECONDS);
     assert(q1(t.stats, "SELECT pages_start IS NULL FROM sessions WHERE start_time=50000") == 1);
-
-    /* Nothing to repair -> no backup is written */
-    tracker_close(&t);
-    unlink(ST_DB ".premigration");
-    assert(tracker_init(&t, ST_DB, EXP_DB) == 0);
-    assert(access(ST_DB ".premigration", F_OK) != 0);
 
     /* Session across local midnight is split so both days get their time */
     set_state(exp, 82500, 82500, 20); /* 1970-01-01 23:55 CET */

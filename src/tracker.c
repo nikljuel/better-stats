@@ -28,46 +28,7 @@ static const char *MIGRATE =
     "UPDATE sessions SET pages_start = NULL"
     " WHERE recovered = 1 AND pages_start IS NOT NULL;"
     "UPDATE sessions SET active_seconds = " STR(RECOVERED_CAP_SECONDS)
-    " WHERE recovered = 1 AND active_seconds > " STR(RECOVERED_CAP_SECONDS) ";"
-    /* Rows written before position_ts was clamped: a stale position_ts ended
-     * the session before its start and inflated active_seconds by up to one
-     * IDLE_CAP. Active time can never exceed the row's own span. */
-    "UPDATE sessions SET end_time = start_time WHERE end_time < start_time;"
-    "UPDATE sessions SET active_seconds = end_time - start_time"
-    " WHERE active_seconds > end_time - start_time;";
-
-/* Everything MIGRATE would rewrite. Kept in sync with it by hand: it only
- * decides whether a backup is worth taking, so a mismatch costs a stale
- * backup, never data. */
-static const char *DAMAGED_SQL =
-    "SELECT COUNT(*) FROM sessions WHERE"
-    " (recovered = 1 AND pages_start IS NOT NULL)"
-    " OR (recovered = 1 AND active_seconds > " STR(RECOVERED_CAP_SECONDS) ")"
-    " OR end_time < start_time"
-    " OR active_seconds > end_time - start_time";
-
-/* The repair rewrites rows in place and cannot be undone, so keep the database
- * as it was first. VACUUM INTO refuses an existing target, which limits this to
- * the first run on its own; a failure here must not stop the daemon. */
-static void backup_before_migrate(sqlite3 *db, const char *stats_path)
-{
-    sqlite3_stmt *st = NULL;
-    int damaged = 0;
-    if (sqlite3_prepare_v2(db, DAMAGED_SQL, -1, &st, NULL) == SQLITE_OK
-        && sqlite3_step(st) == SQLITE_ROW)
-        damaged = sqlite3_column_int(st, 0);
-    sqlite3_finalize(st);
-    if (damaged == 0)
-        return;
-
-    char path[512];
-    snprintf(path, sizeof(path), "%s.premigration", stats_path);
-    char *sql = sqlite3_mprintf("VACUUM INTO %Q", path);
-    if (!sql)
-        return;
-    sqlite3_exec(db, sql, NULL, NULL, NULL);
-    sqlite3_free(sql);
-}
+    " WHERE recovered = 1 AND active_seconds > " STR(RECOVERED_CAP_SECONDS) ";";
 
 static int exec1(sqlite3 *db, const char *sql)
 {
@@ -89,7 +50,6 @@ int tracker_init(tracker *t, const char *stats_path, const char *explorer_path)
     sqlite3_busy_timeout(t->stats, 2000);
     if (exec1(t->stats, SCHEMA) != 0)
         return -1;
-    backup_before_migrate(t->stats, stats_path);
     return exec1(t->stats, MIGRATE);
 }
 
