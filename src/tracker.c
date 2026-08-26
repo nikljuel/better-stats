@@ -130,7 +130,12 @@ static void upsert_book(tracker *t, const pb_state *s)
     const char *sql =
         "INSERT INTO books (book_id, title, author, cover, cpage, npage, completed, last_seen)"
         " VALUES (?1,?2,?3,?4,?5,?6,?7,?8)"
-        " ON CONFLICT(book_id) DO UPDATE SET title=?2, author=?3, cover=?4,"
+        " ON CONFLICT(book_id) DO UPDATE SET title=?2, author=?3,"
+        /* Never trade a known cover key for an empty one: the key is derived
+         * from the firmware's files row, which disappears when the book is
+         * deleted, while the cached image itself stays. Overwriting here is
+         * what made the picture of a finished-and-deleted book unreachable. */
+        "  cover = CASE WHEN ?4 = '' THEN cover ELSE ?4 END,"
         "  cpage=?5, npage=?6, completed=?7, last_seen=?8";
     if (sqlite3_prepare_v2(t->stats, sql, -1, &st, NULL) != SQLITE_OK)
         return;

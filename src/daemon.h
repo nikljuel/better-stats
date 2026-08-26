@@ -7,6 +7,10 @@
 #define PIDFILE "/tmp/betterstats.pid"
 #define LEGACY_PIDFILE STATS_DIR "/betterstats.pid"
 #define COVER_DIR "/mnt/ext1/system/cover_chache/hashed"
+/* Our own cover cache, keyed by the same "<storageid><hex fast_hash>" string
+ * that books.cover keeps -- so a cached image stays reachable after the
+ * firmware forgets the book. */
+#define COVER_CACHE_DIR STATS_DIR "/covers"
 
 #ifdef __cplusplus
 extern "C" {

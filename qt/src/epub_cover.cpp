@@ -14,7 +14,7 @@ extern "C" {
 
 namespace {
 
-constexpr const char *kCacheDir = STATS_DIR "/covers";
+constexpr const char *kCacheDir = COVER_CACHE_DIR;
 
 QByteArray readZipEntry(mz_zip_archive *zip, const QString &name)
 {

@@ -226,6 +226,38 @@ int main(void)
     /* the new row continues the page count instead of restarting it */
     assert(q1(t.stats, "SELECT pages_start FROM sessions WHERE start_time=82800") == 22);
 
+    /* A deleted book loses its files row, so the firmware can no longer supply
+     * a cover key -- but the image we cached under it is still on disk. The
+     * upsert must therefore never trade a known key for an empty one. */
+    ex(t.stats, "INSERT INTO books (book_id,title,cover) VALUES (99,'Weg','1deadbeef')"
+                " ON CONFLICT(book_id) DO UPDATE SET cover='1deadbeef'");
+    {
+        pb_state gone;
+        memset(&gone, 0, sizeof gone);
+        gone.bookid = 99;
+        gone.opentime = 700000;
+        gone.position_ts = 700060;
+        snprintf(gone.title, sizeof gone.title, "Weg");
+        gone.cover[0] = '\0'; /* files row is gone */
+        assert(tracker_observe(&t, &gone, 700060) == 1);
+        assert(q1(t.stats, "SELECT cover='1deadbeef' FROM books WHERE book_id=99") == 1);
+    }
+    /* A real key still overwrites, otherwise a moved book would keep a stale one */
+    {
+        pb_state back;
+        memset(&back, 0, sizeof back);
+        back.bookid = 99;
+        back.opentime = 700100;
+        back.position_ts = 700160;
+        snprintf(back.title, sizeof back.title, "Weg");
+        snprintf(back.cover, sizeof back.cover, "2cafebabe");
+        assert(tracker_observe(&t, &back, 700160) == 1);
+        assert(q1(t.stats, "SELECT cover='2cafebabe' FROM books WHERE book_id=99") == 1);
+    }
+    ex(t.stats, "DELETE FROM books WHERE book_id=99;"
+                "DELETE FROM sessions WHERE book_id=99");
+    t.cur_book = 0; /* the probe book is gone; don't resume it */
+
     /* stats_overall computes without crashing and plausibly */
     overall_stats o;
     ex(t.stats, "UPDATE books SET completed=1"); /* for the finished counter */
