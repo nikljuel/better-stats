@@ -63,7 +63,7 @@ int main(void)
     unlink(explorer_path);
     unlink(stats_path);
     unlink(epub_path);
-    unlink("/tmp/bs_model_cache/covers/1aa.png");
+    unlink("/tmp/bs_model_cache/covers/aa.png");
     rmdir("/tmp/bs_model_cache/covers");
     rmdir("/tmp/bs_model_cache");
     unlink("/tmp/bs_model_firmware_covers/1bb.png");
@@ -132,7 +132,13 @@ int main(void)
     assert(current.ok && current.percent == 25);
     assert(strcmp(current.title, "Alpha") == 0);
     assert(strcmp(current.author, "Ada") == 0);
-    assert(strcmp(current.cover_path, "/tmp/bs_model_cache/covers/1aa.png") == 0);
+    /* Our own cache is keyed by the hash alone, without the storage id: the
+     * same book is indexed once per storage, so a key carrying it would give
+     * one book two names and orphan the cached image whenever the row order
+     * flips. The firmware's own cache below keeps the storage id, because the
+     * firmware picks that name. */
+    assert(strcmp(current.cover_path, "/tmp/bs_model_cache/covers/aa.png") == 0);
+    assert(strstr(current.cover_path, "/1aa.png") == NULL);
     assert(access(current.cover_path, R_OK) == 0);
 
     bs_year year;
@@ -158,7 +164,7 @@ int main(void)
     bs_year_books_free(&books);
 
     bs_context_close(context);
-    unlink("/tmp/bs_model_cache/covers/1aa.png");
+    unlink("/tmp/bs_model_cache/covers/aa.png");
     rmdir("/tmp/bs_model_cache/covers");
     rmdir("/tmp/bs_model_cache");
     unlink("/tmp/bs_model_firmware_covers/1bb.png");

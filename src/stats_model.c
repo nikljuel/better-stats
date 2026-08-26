@@ -575,6 +575,7 @@ static void resolve_cover(sqlite3 *explorer, sqlite3 *stats, const char *title,
 
     const char *sql =
         "SELECT IFNULL(fo.name,'')||'/'||f.filename,"
+        " lower(hex(f.fast_hash)),"
         " f.storageid||lower(hex(f.fast_hash))"
         " FROM books_impl b JOIN files f ON f.book_id=b.id"
         " LEFT JOIN folders fo ON fo.id=f.folder_id"
@@ -585,13 +586,19 @@ static void resolve_cover(sqlite3 *explorer, sqlite3 *stats, const char *title,
         sqlite3_bind_text(statement, 1, title, -1, SQLITE_TRANSIENT);
         while (sqlite3_step(statement) == SQLITE_ROW) {
             const char *path = (const char *)sqlite3_column_text(statement, 0);
+            /* Our own cache is keyed by the hash alone. The same book is
+             * indexed once per storage, so the firmware's "<storageid><hash>"
+             * would give one book two keys and flip between them whenever the
+             * row order changes -- orphaning the cached image each time. */
             const char *key = (const char *)sqlite3_column_text(statement, 1);
+            const char *fw_key = (const char *)sqlite3_column_text(statement, 2);
             if (source && !*source)
                 snprintf(source, BS_PATH_MAX, "%s", path ? path : "");
-            if (safe_cache_key(key)) {
-                snprintf(remembered, sizeof(remembered), "%s", key);
+            if (safe_cache_key(key) && safe_cache_key(fw_key)) {
+                snprintf(remembered, sizeof(remembered), "%s", fw_key);
                 if (!*fallback && !cached_cover(key, fallback)) {
-                    snprintf(fallback, sizeof(fallback), COVER_DIR "/%s.png", key);
+                    snprintf(fallback, sizeof(fallback), COVER_DIR "/%s.png",
+                             fw_key);
                     if (!file_exists(fallback))
                         fallback[0] = '\0';
                 }
@@ -606,10 +613,16 @@ static void resolve_cover(sqlite3 *explorer, sqlite3 *stats, const char *title,
         snprintf(out, BS_PATH_MAX, "%s", fallback);
     if (!*out && !*remembered)
         remembered_cover_key(stats, title, remembered);
-    if (!*out && *remembered && !cached_cover(remembered, out)) {
-        snprintf(out, BS_PATH_MAX, COVER_DIR "/%s.png", remembered);
-        if (!file_exists(out))
-            out[0] = '\0';
+    if (!*out && *remembered) {
+        /* books.cover holds the firmware's name; the hash inside it is our own
+         * cache key. Try the whole string too, for keys written before the
+         * split was understood. */
+        const char *hash = remembered[0] && remembered[1] ? remembered + 1 : remembered;
+        if (!cached_cover(hash, out) && !cached_cover(remembered, out)) {
+            snprintf(out, BS_PATH_MAX, COVER_DIR "/%s.png", remembered);
+            if (!file_exists(out))
+                out[0] = '\0';
+        }
     }
 }
 
