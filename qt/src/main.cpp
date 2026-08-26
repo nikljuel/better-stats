@@ -6,6 +6,7 @@
 #include <QQmlContext>
 #include <QQuickWindow>
 #include <QString>
+#include <QTimer>
 #include <QUrl>
 
 #include "inkview_bridge.h"
@@ -67,5 +68,6 @@ int main(int argc, char *argv[])
         if (ready.open(QIODevice::WriteOnly | QIODevice::Truncate))
             ready.close();
     }
+    QTimer::singleShot(750, &stats, &StatsBridge::automaticUpdate);
     return app.exec();
 }

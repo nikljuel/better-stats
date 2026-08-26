@@ -75,11 +75,13 @@ applications/betterstats/releases/<version>/
   SHA256SUMS
 ```
 
-An updater stages the entire new release directory, then runs
-`activate-release <version>`. The helper validates the release name, all three
-executables and `SHA256SUMS`, then atomically renames a temporary `current` file.
-The previous release remains available if validation fails or power is lost
-before that final rename.
+The on-device updater reads the latest stable GitHub release and expects an
+asset named exactly `BetterStats-<tag>.zip`. It verifies the asset size and
+GitHub SHA-256 digest, stages the entire new release directory, then runs
+`activate-release <version>`. The helper validates the release name, manifest,
+all three executables and `SHA256SUMS`, then atomically renames a temporary
+`current` file. The previous release remains available if validation fails or
+power is lost before that final rename.
 
 ## Deploy (development)
 
@@ -98,8 +100,9 @@ Adjust `DEVICE` at the top of the `Makefile` to your reader's mount point
 make test
 ```
 
-Builds and runs the tracker, EPUB-handler parser, shared statistics model and
-dispatcher/activation checks on the host. No device is needed.
+Builds and runs the tracker, EPUB-handler parser, shared statistics model,
+updater release parser/settings and dispatcher/activation checks on the host.
+No device is needed.
 
 ## Icons
 
@@ -128,9 +131,10 @@ tools/          icon generator and hard-float builder image
 ## How the pieces fit
 
 - `src/*.c` is plain C shared by both UIs. It derives sessions, aggregates every
-  tab, extracts EPUB covers, configures autostart and runs the daemon.
+  tab, extracts EPUB covers, configures autostart, updates releases and runs the
+  daemon.
 - `qt/src/main.cpp` boots Qt and creates a ready marker after the QML root loads.
-  `stats_bridge.cpp` only converts the shared C structs to QVariant values.
+  `stats_bridge.cpp` exposes the shared statistics and updater to QML.
 - `inkview/main.c` renders the same four tabs directly through InkView and also
   supplies the daemon entry point for both ABIs.
 - `packaging/BetterStats.app` selects the ABI, starts tracking, attempts Qt and

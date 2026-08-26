@@ -23,23 +23,14 @@ Window {
         onClose: Qt.quit()
 
         // AppHeader 2.0 places child controls in its right-hand action row.
-        Item {
+        BitmapButton {
             width: GlobalValues.defaultListItemHeight
             height: GlobalValues.defaultListItemHeight
-
-            StyledText {
-                anchors.centerIn: parent
-                styledFont: FontStyles.Heading3
-                color: GlobalValues.defaultTextColor
-                text: "⚙"
-            }
-
-            MouseArea {
-                anchors.fill: parent
-                onClicked: {
-                    settingsDialog.refresh()
-                    settingsDialog.visible = true
-                }
+            icon: "image://resource/settings"
+            pressedIcon: "image://resource_inv/settings"
+            onAction: {
+                settingsDialog.refresh()
+                settingsDialog.visible = true
             }
         }
     }
@@ -151,6 +142,47 @@ Window {
             status = stats.autostartStatus()
         }
 
+        function updateStatusText() {
+            if (stats.updateState === "checking")
+                return Tr.t("Suche nach Updates …", "Checking for updates …")
+            if (stats.updateState === "downloading")
+                return Tr.t("Update wird geladen und geprüft …",
+                            "Downloading and verifying update …")
+            if (stats.updateState === "restarting")
+                return Tr.t("Update installiert. Neustart …",
+                            "Update installed. Restarting …")
+            if (stats.updateState === "available")
+                return Tr.t("Update verfügbar: ", "Update available: ")
+                       + stats.latestVersion
+            if (stats.updateState === "current")
+                return Tr.t("Better Stats ist aktuell.", "Better Stats is up to date.")
+            if (stats.updateState !== "error")
+                return Tr.t("Noch nicht geprüft.", "Not checked yet.")
+            if (stats.updateError === -1)
+                return Tr.t("Keine WLAN-Verbindung.", "No Wi-Fi connection.")
+            if (stats.updateError === -2)
+                return Tr.t("Download fehlgeschlagen.", "Download failed.")
+            if (stats.updateError === -3)
+                return Tr.t("Release-Antwort ungültig.", "Invalid release response.")
+            if (stats.updateError === -4)
+                return Tr.t("Kein passendes Update-Paket gefunden.",
+                            "No matching update package found.")
+            if (stats.updateError === -5)
+                return Tr.t("Update-Paket ist beschädigt.", "Update package is damaged.")
+            if (stats.updateError === -7)
+                return Tr.t("Diese Firmware unterstützt WLAN-Updates nicht.",
+                            "This firmware does not support Wi-Fi updates.")
+            return Tr.t("Update konnte nicht installiert werden.",
+                        "The update could not be installed.")
+        }
+
+        StyledText {
+            width: parent.width
+            styledFont: FontStyles.BodyLBold
+            color: GlobalValues.defaultTextColor
+            text: Tr.t("Tracking", "Tracking")
+        }
+
         StyledText {
             width: parent.width
             styledFont: FontStyles.BodyS
@@ -177,6 +209,142 @@ Window {
                 ? Tr.t("Grund: Ein anderer Reader ist für EPUBs eingetragen. Better Stats lässt ihn unangetastet.",
                        "Reason: another reader is registered for EPUBs. Better Stats leaves it alone.")
                 : Tr.t("Grund: ", "Reason: ") + settingsDialog.status.message
+        }
+
+        Rectangle {
+            width: parent.width
+            height: GlobalValues.defaultSolidSeparatorThickness
+            color: GlobalValues.defaultBorderColor
+        }
+
+        StyledText {
+            width: parent.width
+            styledFont: FontStyles.BodyLBold
+            color: GlobalValues.defaultTextColor
+            text: Tr.t("Updates", "Updates")
+        }
+
+        Item {
+            width: parent.width
+            height: Global.dp(64)
+
+            Column {
+                anchors.left: parent.left
+                anchors.right: updateSwitch.left
+                anchors.rightMargin: Global.dp(12)
+                anchors.verticalCenter: parent.verticalCenter
+                spacing: Global.dp(4)
+
+                StyledText {
+                    width: parent.width
+                    styledFont: FontStyles.BodyL
+                    color: GlobalValues.defaultTextColor
+                    text: Tr.t("Automatisch aktualisieren", "Automatic updates")
+                }
+
+                StyledText {
+                    width: parent.width
+                    styledFont: FontStyles.BodyS
+                    color: GlobalValues.defaultDisabledTextColor
+                    wrapMode: Text.Wrap
+                    text: Tr.t("Beim Start, wenn WLAN bereits verbunden ist.",
+                               "On launch when Wi-Fi is already connected.")
+                }
+            }
+
+            Rectangle {
+                id: updateSwitch
+                anchors.right: parent.right
+                anchors.verticalCenter: parent.verticalCenter
+                width: Global.dp(52)
+                height: Global.dp(30)
+                radius: height / 2
+                color: stats.automaticUpdates
+                       ? GlobalValues.defaultTextColor
+                       : GlobalValues.defaultBackgroundColor
+                border.width: GlobalValues.dialogBorderWidth
+                border.color: GlobalValues.defaultTextColor
+
+                Rectangle {
+                    anchors.verticalCenter: parent.verticalCenter
+                    x: stats.automaticUpdates
+                       ? parent.width - width - Global.dp(4) : Global.dp(4)
+                    width: Global.dp(20)
+                    height: width
+                    radius: width / 2
+                    color: stats.automaticUpdates
+                           ? GlobalValues.defaultBackgroundColor
+                           : GlobalValues.defaultTextColor
+                }
+            }
+
+            MouseArea {
+                anchors.fill: parent
+                onClicked: stats.setAutomaticUpdates(!stats.automaticUpdates)
+            }
+        }
+
+        StyledText {
+            width: parent.width
+            styledFont: FontStyles.BodyS
+            color: GlobalValues.defaultDisabledTextColor
+            text: Tr.t("Installiert: ", "Installed: ")
+                  + (stats.currentVersion === "" ? "–" : stats.currentVersion)
+        }
+
+        StyledText {
+            width: parent.width
+            styledFont: FontStyles.BodyS
+            color: stats.updateState === "error"
+                   ? GlobalValues.defaultTextColor
+                   : GlobalValues.defaultDisabledTextColor
+            wrapMode: Text.Wrap
+            text: settingsDialog.updateStatusText()
+        }
+
+        Rectangle {
+            property bool busy: stats.updateState === "checking"
+                                || stats.updateState === "downloading"
+                                || stats.updateState === "restarting"
+            width: parent.width
+            height: Global.dp(48)
+            color: GlobalValues.defaultBackgroundColor
+            border.width: GlobalValues.dialogBorderWidth
+            border.color: busy ? GlobalValues.defaultDisabledTextColor
+                               : GlobalValues.defaultTextColor
+
+            StyledText {
+                anchors.centerIn: parent
+                styledFont: FontStyles.BodyLBold
+                color: parent.busy ? GlobalValues.defaultDisabledTextColor
+                                   : GlobalValues.defaultTextColor
+                text: Tr.t("Jetzt prüfen", "Check now")
+            }
+
+            MouseArea {
+                anchors.fill: parent
+                enabled: !parent.busy
+                onClicked: stats.checkForUpdates()
+            }
+        }
+
+        Rectangle {
+            visible: stats.updateState === "available"
+            width: parent.width
+            height: visible ? Global.dp(48) : 0
+            color: GlobalValues.defaultTextColor
+
+            StyledText {
+                anchors.centerIn: parent
+                styledFont: FontStyles.BodyLBold
+                color: GlobalValues.defaultBackgroundColor
+                text: Tr.t("Update installieren", "Install update")
+            }
+
+            MouseArea {
+                anchors.fill: parent
+                onClicked: stats.installUpdate()
+            }
         }
     }
 }

@@ -4,9 +4,13 @@ set -eu
 base=${BETTERSTATS_BASE:-/mnt/ext1/applications/betterstats}
 version=${1:-}
 case "$version" in
-    ''|*[!A-Za-z0-9._-]*) echo "invalid release name" >&2; exit 1 ;;
+    ''|.*|*[!A-Za-z0-9._-]*) echo "invalid release name" >&2; exit 1 ;;
 esac
 release="$base/releases/$version"
+[ "$(cat "$release/manifest" 2>/dev/null)" = "version=$version" ] || {
+    echo "release manifest mismatch" >&2
+    exit 1
+}
 for file in betterstats-qt-softfp betterstats-inkview-softfp betterstats-inkview-hardfp; do
     [ -x "$release/$file" ] || { echo "incomplete release: $file" >&2; exit 1; }
 done

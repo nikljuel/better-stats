@@ -37,7 +37,7 @@ static int daemon_pid_matches(int pid)
 }
 
 /* A stale PID can point at an unrelated process after USB mode. */
-static int daemon_alive(void)
+static int active_daemon_pid(void)
 {
     FILE *f = fopen(PIDFILE, "r");
     if (!f)
@@ -59,9 +59,16 @@ static int daemon_alive(void)
         return 0;
     }
     if (pid > 0 && kill(pid, 0) == 0 && daemon_pid_matches(pid))
-        return 1;
+        return pid;
     unlink(PIDFILE);
     return 0;
+}
+
+void stop_daemon(void)
+{
+    int pid = active_daemon_pid();
+    if (pid > 0)
+        kill(pid, SIGTERM);
 }
 
 static void write_pidfile(void)
@@ -131,7 +138,7 @@ static void wait_for_library_change(int wfd)
 int run_daemon(void)
 {
     setsid();
-    if (daemon_alive())
+    if (active_daemon_pid())
         return 0;
     mkdir(STATS_DIR, 0755);
     unlink(LEGACY_PIDFILE);

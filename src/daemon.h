@@ -25,6 +25,7 @@ extern "C" {
 #endif
 
 int run_daemon(void);
+void stop_daemon(void);
 const char *stats_db_path(void);
 const char *explorer_db_path(void);
 

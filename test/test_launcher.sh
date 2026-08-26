@@ -28,6 +28,7 @@ fi
 exit 127
 SCRIPT
 chmod +x "$release/betterstats-qt-softfp"
+printf 'version=v1\n' > "$release/manifest"
 (cd "$release" && shasum -a 256 betterstats-* > SHA256SUMS)
 cp packaging/activate-release "$tmp/applications/betterstats/activate-release"
 chmod +x "$tmp/applications/betterstats/activate-release"
@@ -38,6 +39,18 @@ if BETTERSTATS_BASE="$tmp/applications/betterstats" \
     echo "invalid release was activated" >&2
     exit 1
 fi
+if BETTERSTATS_BASE="$tmp/applications/betterstats" \
+    sh "$tmp/applications/betterstats/activate-release" .. >/dev/null 2>&1; then
+    echo "dot release was activated" >&2
+    exit 1
+fi
+printf 'version=v2\n' > "$release/manifest"
+if BETTERSTATS_BASE="$tmp/applications/betterstats" \
+    sh "$tmp/applications/betterstats/activate-release" v1 >/dev/null 2>&1; then
+    echo "mismatched manifest was activated" >&2
+    exit 1
+fi
+printf 'version=v1\n' > "$release/manifest"
 
 run_launcher() {
     status=0
@@ -71,6 +84,12 @@ grep -q '^hardfp:--daemon$' "$calls"
 printf '../escape\n' > "$tmp/applications/betterstats/current"
 if run_launcher; then
     echo "invalid release pointer was accepted" >&2
+    exit 1
+fi
+
+printf '..\n' > "$tmp/applications/betterstats/current"
+if run_launcher; then
+    echo "dot release pointer was accepted" >&2
     exit 1
 fi
 

@@ -15,9 +15,11 @@ pocketbook_add_app(BetterStats
     src/tracker.c
     src/stats_db.c
     src/stats_model.c
+    src/daemon.c
     src/paths.c
     src/file_handler_config.c
     src/autostart.c
+    src/updater.c
     qt/third_party/sqlite3.c
     qt/third_party/miniz.c
   QRC qt/qml/betterstats.qrc
@@ -44,6 +46,7 @@ add_executable(BetterStatsInkView
   src/paths.c
   src/file_handler_config.c
   src/autostart.c
+  src/updater.c
   qt/third_party/sqlite3.c
   qt/third_party/miniz.c
 )

@@ -1,5 +1,8 @@
 #include "stats_bridge.h"
 
+#include <QCoreApplication>
+#include <QEventLoop>
+#include <QTimer>
 #include <QUrl>
 #include <QVariantList>
 
@@ -47,6 +50,7 @@ StatsBridge::StatsBridge(QObject *parent) : QObject(parent)
 {
     bs_error error{};
     bs_context_open(&context_, stats_db_path(), explorer_db_path(), &error);
+    bs_update_read_current(&update_);
 }
 
 StatsBridge::~StatsBridge()
@@ -57,6 +61,95 @@ StatsBridge::~StatsBridge()
 QVariantMap StatsBridge::autostartStatus()
 {
     return autostartMap(::autostartStatus());
+}
+
+bool StatsBridge::automaticUpdates() const
+{
+    return bs_update_auto_enabled();
+}
+
+QString StatsBridge::updateState() const
+{
+    return updateState_;
+}
+
+QString StatsBridge::currentVersion() const
+{
+    return QString::fromLatin1(update_.current_version);
+}
+
+QString StatsBridge::latestVersion() const
+{
+    return QString::fromLatin1(update_.latest_version);
+}
+
+int StatsBridge::updateError() const
+{
+    return update_.error;
+}
+
+void StatsBridge::setUpdateState(const char *state)
+{
+    updateState_ = QString::fromLatin1(state);
+    emit updateChanged();
+    QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents);
+}
+
+void StatsBridge::setAutomaticUpdates(bool enabled)
+{
+    if (bs_update_set_auto_enabled(enabled) != 0) {
+        update_.error = BS_UPDATE_ERR_INSTALL;
+        qstrncpy(update_.detail, "Could not save update setting",
+                 sizeof(update_.detail));
+        setUpdateState("error");
+        return;
+    }
+    emit updateChanged();
+}
+
+void StatsBridge::checkForUpdates()
+{
+    checkForUpdates(false);
+}
+
+void StatsBridge::checkForUpdates(bool automatic)
+{
+    setUpdateState("checking");
+    const int result = bs_update_check(&update_, automatic ? 0 : 1);
+    if (result == BS_UPDATE_AVAILABLE) {
+        setUpdateState("available");
+        if (automatic)
+            installUpdate();
+    } else {
+        setUpdateState(result == BS_UPDATE_CURRENT ? "current" : "error");
+    }
+}
+
+void StatsBridge::installUpdate()
+{
+    if (updateState_ != QLatin1String("available"))
+        return;
+    setUpdateState("downloading");
+    if (bs_update_install(&update_) != 0) {
+        setUpdateState("error");
+        return;
+    }
+    setUpdateState("restarting");
+    if (bs_update_restart() != 0) {
+        update_.error = BS_UPDATE_ERR_INSTALL;
+        qstrncpy(update_.detail, "Could not restart Better Stats",
+                 sizeof(update_.detail));
+        setUpdateState("error");
+        return;
+    }
+    QTimer::singleShot(200, QCoreApplication::instance(),
+                       &QCoreApplication::quit);
+}
+
+void StatsBridge::automaticUpdate()
+{
+    if (automaticUpdates() && bs_update_network_connected())
+        checkForUpdates(true);
 }
 
 QVariantMap StatsBridge::overall()

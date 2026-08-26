@@ -3,6 +3,7 @@
 #include "autostart.h"
 #include "daemon.h"
 #include "stats_model.h"
+#include "updater.h"
 
 #include <math.h>
 #include <stdio.h>
@@ -30,6 +31,7 @@ typedef struct {
     bs_month month;
     bs_year_books year_books;
     bs_autostart_status autostart;
+    bs_update_info update;
     ifont *tiny;
     ifont *small;
     ifont *body;
@@ -50,6 +52,7 @@ typedef struct {
     int loaded_tab;
     int dialog;
     int dialog_index;
+    int auto_update_scheduled;
 } app_state;
 
 typedef struct {
@@ -848,17 +851,126 @@ static void show_month(int month)
     draw();
 }
 
+static const char *update_error_text(void)
+{
+    switch (app.update.error) {
+    case BS_UPDATE_ERR_NETWORK:
+        return tr("Keine WLAN-Verbindung.", "No Wi-Fi connection.");
+    case BS_UPDATE_ERR_DOWNLOAD:
+        return tr("Download fehlgeschlagen.", "Download failed.");
+    case BS_UPDATE_ERR_RESPONSE:
+        return tr("Release-Antwort ungültig.", "Invalid release response.");
+    case BS_UPDATE_ERR_ASSET:
+        return tr("Kein passendes Update-Paket gefunden.",
+                  "No matching update package found.");
+    case BS_UPDATE_ERR_CORRUPT:
+        return tr("Update-Paket ist beschädigt.", "Update package is damaged.");
+    case BS_UPDATE_ERR_UNSUPPORTED:
+        return tr("Diese Firmware unterstützt WLAN-Updates nicht.",
+                  "This firmware does not support Wi-Fi updates.");
+    default:
+        return tr("Update konnte nicht installiert werden.",
+                  "The update could not be installed.");
+    }
+}
+
+static void install_update(int automatic)
+{
+    ShowHourglass();
+    int result = bs_update_install(&app.update);
+    HideHourglass();
+    if (result != 0) {
+        if (!automatic)
+            Message(ICON_WARNING, tr("Update", "Update"),
+                    update_error_text(), 5000);
+        return;
+    }
+    if (bs_update_restart() == 0) {
+        CloseApp();
+    } else if (!automatic) {
+        Message(ICON_WARNING, tr("Update", "Update"),
+                tr("Neustart fehlgeschlagen.", "Restart failed."), 5000);
+    }
+}
+
+static void update_dialog_handler(int button)
+{
+    if (button == 1)
+        install_update(0);
+}
+
+static void check_for_updates(int automatic)
+{
+    if (automatic
+        && (!bs_update_auto_enabled() || !bs_update_network_connected()))
+        return;
+    ShowHourglass();
+    int result = bs_update_check(&app.update, automatic ? 0 : 1);
+    HideHourglass();
+    if (result == BS_UPDATE_AVAILABLE) {
+        if (automatic) {
+            install_update(1);
+        } else {
+            char message[256];
+            snprintf(message, sizeof(message),
+                     tr("Version %s ist verfügbar.", "Version %s is available."),
+                     app.update.latest_version);
+            Dialog(ICON_QUESTION, tr("Update", "Update"), message,
+                   tr("Installieren", "Install"), tr("Abbrechen", "Cancel"),
+                   update_dialog_handler);
+        }
+    } else if (!automatic) {
+        Message(result == BS_UPDATE_CURRENT ? ICON_INFORMATION : ICON_WARNING,
+                tr("Update", "Update"),
+                result == BS_UPDATE_CURRENT
+                    ? tr("Better Stats ist aktuell.", "Better Stats is up to date.")
+                    : update_error_text(),
+                5000);
+    }
+}
+
+static void show_settings(void);
+
+static void settings_dialog_handler(int button)
+{
+    if (button == 1) {
+        if (bs_update_set_auto_enabled(!bs_update_auto_enabled()) != 0)
+            Message(ICON_WARNING, tr("Update", "Update"),
+                    tr("Einstellung konnte nicht gespeichert werden.",
+                       "The setting could not be saved."), 5000);
+        else
+            show_settings();
+    } else if (button == 2) {
+        check_for_updates(0);
+    }
+}
+
 static void show_settings(void)
 {
     bs_autostart_get(&app.autostart);
-    Message(ICON_INFORMATION, tr("Einstellungen", "Settings"),
-            app.autostart.enabled
-                ? tr("Tracking startet automatisch beim Öffnen eines EPUBs.",
-                     "Tracking starts automatically when an EPUB opens.")
-                : (*app.autostart.message ? app.autostart.message
-                   : tr("Automatisches Tracking ist nicht aktiv.",
-                        "Automatic tracking is not active.")),
-            6000);
+    bs_update_read_current(&app.update);
+    char message[768];
+    snprintf(message, sizeof(message), "%s\n\n%s: %s\n%s: %s",
+             app.autostart.enabled
+                 ? tr("Tracking startet automatisch beim Öffnen eines EPUBs.",
+                      "Tracking starts automatically when an EPUB opens.")
+                 : (*app.autostart.message ? app.autostart.message
+                    : tr("Automatisches Tracking ist nicht aktiv.",
+                         "Automatic tracking is not active.")),
+             tr("Installiert", "Installed"),
+             *app.update.current_version ? app.update.current_version : "–",
+             tr("Automatische Updates", "Automatic updates"),
+             bs_update_auto_enabled() ? tr("Ein", "On") : tr("Aus", "Off"));
+    Dialog3(ICON_INFORMATION, tr("Einstellungen", "Settings"), message,
+            bs_update_auto_enabled() ? tr("Ausschalten", "Turn off")
+                                     : tr("Einschalten", "Turn on"),
+            tr("Jetzt prüfen", "Check now"), tr("Schließen", "Close"),
+            settings_dialog_handler);
+}
+
+static void automatic_update(void)
+{
+    check_for_updates(1);
 }
 
 static int point_in(int x, int y, int left, int top, int width, int height)
@@ -955,10 +1067,15 @@ static int handler(int type, int par1, int par2)
         app.dialog = DIALOG_NONE;
         bs_context_open(&app.context, stats_db_path(), explorer_db_path(), &app.error);
         bs_autostart_set(1, &app.autostart);
+        bs_update_read_current(&app.update);
         return 1;
     }
     if (type == EVT_SHOW || type == EVT_REPAINT) {
         draw();
+        if (!app.auto_update_scheduled) {
+            app.auto_update_scheduled = 1;
+            SetWeakTimer("betterstats-update", automatic_update, 750);
+        }
         return 1;
     }
     if (type == EVT_POINTERUP) {

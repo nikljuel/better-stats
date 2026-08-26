@@ -37,6 +37,8 @@ kind of stats screen you'd expect from Kobo or Fable.
   language isn't German.
 - **Automatic tracking** — starts before the stock reader opens a book,
   including when the firmware restores the last book after a reboot.
+- **Updates over Wi-Fi** — installs stable GitHub releases without another USB
+  copy; automatic updates are enabled by default and can be switched off.
 
 ## How it works
 
@@ -65,11 +67,13 @@ what you see in the Library.
 
 ## Privacy
 
-Everything stays on the device. No network access, no account, no telemetry.
-Better Stats only **reads** the firmware database. It writes its own stats
-database and cover cache under `system/pbreadstats/`; if Autostart is enabled,
-it also creates a marked EPUB handler under `system/bin/` and updates the user
-`extensions.cfg` (with a backup created before the first change).
+Reading data stays on the device. There is no account and no telemetry. Network
+access is only used to check and download releases from this GitHub repository:
+automatically at app launch when enabled and Wi-Fi is already connected, or
+when **Check now** is selected in Settings. Better Stats only **reads** the
+firmware database. It writes its own stats database and cover cache under
+`system/pbreadstats/`; it also creates a marked EPUB handler under `system/bin/`
+and updates the user `extensions.cfg` (with a backup before the first change).
 
 ## Install
 
@@ -78,6 +82,13 @@ it also creates a marked EPUB handler under `system/bin/` and updates the user
    directory. It installs `applications/BetterStats.app` plus the versioned
    binaries below `applications/betterstats/`.
 3. Eject the reader and open **BetterStats** once.
+
+This USB install is only required once. Later stable releases can be installed
+from **Settings → Check now**. Automatic updates are on by default; they check
+only when Wi-Fi is already connected, validate the release ZIP with its GitHub
+SHA-256 digest, activate the complete multi-ABI bundle atomically and restart
+Better Stats. Switching automatic updates off does not disable the manual
+Wi-Fi update button; a manual check can connect Wi-Fi when needed.
 
 The dispatcher detects soft-float versus hard-float from the firmware loader.
 On soft-float devices it starts Qt first and falls back to InkView only if Qt

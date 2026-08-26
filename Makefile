@@ -5,7 +5,7 @@ QT_IMG   := ghcr.io/fstanis/pocketbook-sdk-qt6-builder
 HARD_FP_IMG := betterstats-hardfp-builder
 INKVIEW_INCLUDE := third_party/pocketbook-sdk-qt6/sdk/SDK-B288/usr/arm-obreey-linux-gnueabi/sysroot/usr/local/include
 INKVIEW_SOURCES := inkview/main.c src/tracker.c src/stats_db.c src/stats_model.c \
-	  src/daemon.c src/paths.c src/file_handler_config.c src/autostart.c \
+	  src/daemon.c src/paths.c src/file_handler_config.c src/autostart.c src/updater.c \
 	  qt/third_party/sqlite3.c qt/third_party/miniz.c
 PACKAGE_VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 PACKAGE_ROOT := build-package/BetterStats
@@ -40,6 +40,10 @@ test:
 	  test/test_stats_model.c src/stats_model.c src/tracker.c src/stats_db.c \
 	  qt/third_party/miniz.c -lsqlite3
 	./build/test_stats_model
+	cc $(CFLAGS) -DSTATS_DIR='"/tmp/bs_update_test"' \
+	  -Isrc -Iqt/third_party -o build/test_updater \
+	  test/test_updater.c src/updater.c qt/third_party/miniz.c -lsqlite3 -ldl
+	./build/test_updater
 	sh test/test_launcher.sh
 
 # ---- Build the app (single ELF, links the device's Qt at runtime) ----
@@ -66,7 +70,7 @@ hardfp:
 
 # ---- Installable bundle: launcher + one atomic release directory ----
 package: qt hardfp
-	@case "$(PACKAGE_VERSION)" in ''|*[!A-Za-z0-9._-]*) \
+	@case "$(PACKAGE_VERSION)" in ''|.*|*[!A-Za-z0-9._-]*) \
 	  echo "Invalid PACKAGE_VERSION: $(PACKAGE_VERSION)" >&2; exit 1;; esac
 	rm -rf "$(PACKAGE_ROOT)"
 	rm -f "build-package/BetterStats-$(PACKAGE_VERSION).zip"
