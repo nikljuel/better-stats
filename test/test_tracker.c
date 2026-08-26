@@ -75,8 +75,8 @@ int main(void)
     assert(strcmp(s.title, "Testbuch") == 0);
     assert(strcmp(s.cover, "1aabb") == 0);
 
-    /* New session observed: active = pos-open (0 here), pages_start = cpage */
-    assert(tracker_observe(&t, &s) == 1);
+    /* New session observed: a row starts at zero, pages_start = cpage */
+    assert(tracker_observe(&t, &s, 0) == 1);
     assert(q1(t.stats, "SELECT COUNT(*) FROM sessions") == 1);
     assert(q1(t.stats, "SELECT active_seconds FROM sessions") == 0);
     assert(q1(t.stats, "SELECT pages_start FROM sessions") == 10);
@@ -84,28 +84,41 @@ int main(void)
     /* Page turn after 60s: active += 60 */
     set_state(exp, 1000, 1060, 12);
     assert(tracker_read_state(EXP_DB, &s) == 0);
-    assert(tracker_observe(&t, &s) == 2);
+    assert(tracker_observe(&t, &s, 60) == 2);
     assert(q1(t.stats, "SELECT active_seconds FROM sessions") == 60);
     assert(q1(t.stats, "SELECT pages_end FROM sessions") == 12);
 
-    /* 1h standby, then a page turn: the gap is capped at IDLE_CAP */
-    set_state(exp, 1000, 1060 + 3600, 13);
+    /* The firmware only moves the session's end, so the row is recomputed from
+     * its endpoints -- it stays one session, it does not accumulate. */
+    set_state(exp, 1000, 1060 + 3600, 45); /* 35 pages: page ceiling not in play */
     assert(tracker_read_state(EXP_DB, &s) == 0);
-    tracker_observe(&t, &s);
-    assert(q1(t.stats, "SELECT active_seconds FROM sessions") == 60 + IDLE_CAP_SECONDS);
-    assert(q1(t.stats, "SELECT end_time FROM sessions") == 4660);
+    assert(tracker_observe(&t, &s, 3660) == 2);
+    assert(q1(t.stats, "SELECT COUNT(*) FROM sessions") == 1);
+    assert(q1(t.stats, "SELECT active_seconds FROM sessions WHERE start_time=1000") == 3660);
+    assert(q1(t.stats, "SELECT end_time FROM sessions WHERE start_time=1000") == 4660);
+    assert(q1(t.stats, "SELECT pages_end FROM sessions WHERE start_time=1000") == 45);
 
     /* No new position_ts -> nothing happens */
-    assert(tracker_observe(&t, &s) == 0);
-    assert(q1(t.stats, "SELECT active_seconds FROM sessions") == 660);
+    assert(tracker_observe(&t, &s, 0) == 0);
+    assert(q1(t.stats, "SELECT COUNT(*) FROM sessions") == 1);
 
-    /* New open = new session; pages_start = pages_end of the old one */
-    set_state(exp, 9000, 9005, 14);
+    /* An observed session is NOT capped: its off-time was measured, so the
+     * remainder is real reading however long it is. */
+    set_state(exp, 1000, 1000 + 10 * 3600, 400); /* 390 pages */
     assert(tracker_read_state(EXP_DB, &s) == 0);
-    assert(tracker_observe(&t, &s) == 1);
+    assert(tracker_observe(&t, &s, 10 * 3600) == 2);
+    assert(q1(t.stats, "SELECT active_seconds FROM sessions WHERE start_time=1000")
+           == 10 * 3600);
+
+    /* New opentime = new session; pages_start = pages_end of the old one */
+    set_state(exp, 90000, 90005, 402);
+    assert(tracker_read_state(EXP_DB, &s) == 0);
+    assert(tracker_observe(&t, &s, 5) == 1);
     assert(q1(t.stats, "SELECT COUNT(*) FROM sessions") == 2);
-    assert(q1(t.stats, "SELECT pages_start FROM sessions WHERE start_time=9000") == 13);
-    assert(q1(t.stats, "SELECT active_seconds FROM sessions WHERE start_time=9000") == 5);
+    assert(q1(t.stats, "SELECT pages_start FROM sessions WHERE start_time=90000") == 400);
+    /* A row starts at zero: presence is only counted from the moment the daemon
+     * saw the session, never backdated to the firmware's opentime. */
+    assert(q1(t.stats, "SELECT active_seconds FROM sessions WHERE start_time=90000") == 0);
 
     /* Recovery: session created without a daemon, backfilled + dedupe */
     tracker_close(&t);
@@ -120,11 +133,11 @@ int main(void)
     tracker_recover(&t); /* idempotent */
     assert(q1(t.stats, "SELECT COUNT(*) FROM sessions") == 3);
 
-    /* Recovery cap against huge spans */
+    /* Backfilled sessions are capped -- nobody watched them */
     set_state(exp, 50000, 50000 + 10 * 3600, 60);
     tracker_recover(&t);
     assert(q1(t.stats, "SELECT active_seconds FROM sessions WHERE start_time=50000") ==
-           RECOVERED_CAP_SECONDS);
+           SESSION_CAP_SECONDS);
 
     /* Stale position_ts: the firmware stamps opentime on open but refreshes
      * position_ts only on a page turn, so it still holds the previous
@@ -140,11 +153,11 @@ int main(void)
     set_state(exp, 200000, 199000, 80);
     assert(tracker_read_state(EXP_DB, &s) == 0);
     assert(s.position_ts == 200000); /* clamped on read */
-    assert(tracker_observe(&t, &s) == 1);
+    assert(tracker_observe(&t, &s, 0) == 1);
     assert(q1(t.stats, "SELECT active_seconds FROM sessions WHERE start_time=200000") == 0);
     set_state(exp, 200000, 200120, 82);
     assert(tracker_read_state(EXP_DB, &s) == 0);
-    assert(tracker_observe(&t, &s) == 2);
+    assert(tracker_observe(&t, &s, 120) == 2);
     assert(q1(t.stats, "SELECT active_seconds FROM sessions WHERE start_time=200000") == 120);
 
     /* Rows written by older versions get retrofitted on open */
@@ -153,16 +166,57 @@ int main(void)
     tracker_close(&t);
     assert(tracker_init(&t, ST_DB, EXP_DB) == 0);
     assert(q1(t.stats, "SELECT active_seconds FROM sessions WHERE start_time=50000") ==
-           RECOVERED_CAP_SECONDS);
+           SESSION_CAP_SECONDS);
     assert(q1(t.stats, "SELECT pages_start IS NULL FROM sessions WHERE start_time=50000") == 1);
+
+    /* Short pauses between page turns count in full */
+    set_state(exp, 400000, 400000, 90);
+    assert(tracker_read_state(EXP_DB, &s) == 0);
+    assert(tracker_observe(&t, &s, 0) == 1);
+    set_state(exp, 400000, 400000 + 60, 95);
+    assert(tracker_read_state(EXP_DB, &s) == 0);
+    assert(tracker_observe(&t, &s, 60) == 2);
+    assert(q1(t.stats, "SELECT active_seconds FROM sessions WHERE start_time=400000") == 60);
+
+    /* Sparse observation is the normal case, not an error: the firmware only
+     * flushes when a session ends, so one late observation must still yield the
+     * full session rather than a zero-length row. */
+    set_state(exp, 400000, 400000 + 60 + 3600, 130); /* 40 pages: ceiling clear */
+    assert(tracker_read_state(EXP_DB, &s) == 0);
+    assert(tracker_observe(&t, &s, 3660) == 2);
+    assert(q1(t.stats, "SELECT active_seconds FROM sessions WHERE start_time=400000") == 3660);
+    assert(q1(t.stats, "SELECT end_time FROM sessions WHERE start_time=400000") == 403660);
+    assert(q1(t.stats, "SELECT pages_end FROM sessions WHERE start_time=400000") == 130);
+
+    /* An hour of wall clock, but the daemon was only present for ten minutes of
+     * it -- the rest the device was locked. Only the presence counts. */
+    set_state(exp, 500000, 500000, 200);
+    assert(tracker_read_state(EXP_DB, &s) == 0);
+    assert(tracker_observe(&t, &s, 1000) == 1);
+    set_state(exp, 500000, 500000 + 3600, 210);
+    assert(tracker_read_state(EXP_DB, &s) == 0);
+    assert(tracker_observe(&t, &s, 1000 + 600) == 2);
+    assert(q1(t.stats, "SELECT active_seconds FROM sessions WHERE start_time=500000") == 600);
+
+    /* The page ceiling bounds an awake device nobody was reading on: two pages
+     * turned may buy at most 2 * SECONDS_PER_PAGE_CAP, however long we sat there. */
+    set_state(exp, 600000, 600000, 300);
+    assert(tracker_read_state(EXP_DB, &s) == 0);
+    assert(tracker_observe(&t, &s, 5000) == 1);
+    set_state(exp, 600000, 600000 + 7200, 302); /* 2 h present, 2 pages */
+    assert(tracker_read_state(EXP_DB, &s) == 0);
+    assert(tracker_observe(&t, &s, 5000 + 7200) == 2);
+    assert(q1(t.stats, "SELECT active_seconds FROM sessions WHERE start_time=600000")
+           == 2 * SECONDS_PER_PAGE_CAP);
 
     /* Session across local midnight is split so both days get their time */
     set_state(exp, 82500, 82500, 20); /* 1970-01-01 23:55 CET */
+    /* (the 400000 session is still current, so a new opentime starts this one) */
     assert(tracker_read_state(EXP_DB, &s) == 0);
-    assert(tracker_observe(&t, &s) == 1);
+    assert(tracker_observe(&t, &s, 0) == 1);
     set_state(exp, 82500, 82900, 22); /* 1970-01-02 00:01:40 CET */
     assert(tracker_read_state(EXP_DB, &s) == 0);
-    assert(tracker_observe(&t, &s) == 2);
+    assert(tracker_observe(&t, &s, 400) == 2);
     assert(q1(t.stats, "SELECT active_seconds FROM sessions WHERE start_time=82500") == 300);
     assert(q1(t.stats, "SELECT active_seconds FROM sessions WHERE start_time=82800") == 100);
     assert(q1(t.stats, "SELECT date(end_time,'unixepoch','localtime')='1970-01-01'"

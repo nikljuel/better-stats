@@ -27,8 +27,8 @@ static const char *SCHEMA =
 static const char *MIGRATE =
     "UPDATE sessions SET pages_start = NULL"
     " WHERE recovered = 1 AND pages_start IS NOT NULL;"
-    "UPDATE sessions SET active_seconds = " STR(RECOVERED_CAP_SECONDS)
-    " WHERE recovered = 1 AND active_seconds > " STR(RECOVERED_CAP_SECONDS) ";";
+    "UPDATE sessions SET active_seconds = " STR(SESSION_CAP_SECONDS)
+    " WHERE recovered = 1 AND active_seconds > " STR(SESSION_CAP_SECONDS) ";";
 
 static int exec1(sqlite3 *db, const char *sql)
 {
@@ -206,23 +206,47 @@ static void insert_session(tracker *t, const pb_state *s, int64_t start_time,
     sqlite3_finalize(st);
 }
 
-/* Adds active seconds to one session row and moves its end. */
-static void update_session(tracker *t, int64_t bookid, int64_t start_time,
-                           int64_t end_time, int64_t add_active, int pages_end)
+/* Sets a session row's end and time. Deliberately SET, not +=: the firmware
+ * only reports where a session began and when its last page turn was, so the
+ * row is recomputed from those endpoints every time one of them moves. */
+static void set_session(tracker *t, int64_t bookid, int64_t start_time,
+                        int64_t end_time, int64_t active, int pages_end)
 {
     sqlite3_stmt *st = NULL;
     const char *sql =
-        "UPDATE sessions SET end_time=?1, active_seconds=active_seconds+?2,"
+        "UPDATE sessions SET end_time=?1, active_seconds=?2,"
         " pages_end=?3 WHERE book_id=?4 AND start_time=?5";
     if (sqlite3_prepare_v2(t->stats, sql, -1, &st, NULL) != SQLITE_OK)
         return;
     sqlite3_bind_int64(st, 1, end_time);
-    sqlite3_bind_int64(st, 2, add_active);
+    sqlite3_bind_int64(st, 2, active);
     sqlite3_bind_int(st, 3, pages_end);
     sqlite3_bind_int64(st, 4, bookid);
     sqlite3_bind_int64(st, 5, start_time);
     sqlite3_step(st);
     sqlite3_finalize(st);
+}
+
+/* Backfilled sessions only: no daemon watched them, so the span between the
+ * firmware's endpoints may be mostly standby. */
+static int64_t bounded(int64_t seconds)
+{
+    if (seconds < 0)
+        return 0;
+    return seconds > SESSION_CAP_SECONDS ? SESSION_CAP_SECONDS : seconds;
+}
+
+/* What an observed row may claim: the time the daemon was demonstrably running
+ * since the row began, but never more than the pages actually turned make
+ * plausible. Presence alone would credit a book lying open on an awake device. */
+static int64_t measured(int64_t present, int pages)
+{
+    if (present < 0)
+        present = 0;
+    if (pages < 0)
+        pages = 0;
+    const int64_t by_pages = (int64_t)pages * SECONDS_PER_PAGE_CAP;
+    return present < by_pages ? present : by_pages;
 }
 
 int tracker_recover(tracker *t)
@@ -247,12 +271,8 @@ int tracker_recover(tracker *t)
     while (sqlite3_step(st) == SQLITE_ROW) {
         pb_state s;
         fill_state(st, &s);
-        int64_t span = s.position_ts - s.opentime;
-        if (span < 0)
-            span = 0;
-        if (span > RECOVERED_CAP_SECONDS)
-            span = RECOVERED_CAP_SECONDS;
-        insert_session(t, &s, s.opentime, span, 0, 1);
+        insert_session(t, &s, s.opentime, bounded(s.position_ts - s.opentime),
+                       0, 1);
         upsert_book(t, &s);
         n++;
     }
@@ -261,55 +281,48 @@ int tracker_recover(tracker *t)
     return n;
 }
 
-int tracker_observe(tracker *t, const pb_state *s)
+int tracker_observe(tracker *t, const pb_state *s, int64_t present)
 {
     if (!s || s->bookid <= 0)
         return 0;
 
-    if (s->bookid != t->cur_book || s->opentime != t->cur_open) {
-        /* New session (or daemon start mid-session). */
-        int64_t active = s->position_ts - s->opentime;
-        if (active < 0)
-            active = 0;
-        if (active > IDLE_CAP_SECONDS)
-            active = IDLE_CAP_SECONDS;
-        insert_session(t, s, s->opentime, active, 1, 0);
-        upsert_book(t, s);
+    const int fresh = (s->bookid != t->cur_book || s->opentime != t->cur_open);
+    if (!fresh && s->position_ts <= t->cur_pos_ts)
+        return 0;
+
+    if (fresh) {
+        insert_session(t, s, s->opentime, 0, 1, 0);
         t->cur_book = s->bookid;
         t->cur_open = s->opentime;
-        t->cur_pos_ts = s->position_ts;
         t->cur_row_start = s->opentime;
-        return 1;
+        t->cur_row_present = present;
+        t->cur_row_pages = s->cpage;
     }
 
-    if (s->position_ts > t->cur_pos_ts) {
-        int64_t gap = s->position_ts - t->cur_pos_ts;
-        if (gap > IDLE_CAP_SECONDS)
-            gap = IDLE_CAP_SECONDS;
-
-        /* All day stats group by date(end_time), so a session must not carry
-         * time across a local midnight: split the row there. The counted window
-         * is [position_ts - gap, position_ts]. */
-        int64_t midnight = local_day_start(s->position_ts);
-        if (t->cur_pos_ts < midnight) {
-            int64_t before = midnight - (s->position_ts - gap);
-            if (before < 0)
-                before = 0;
-            if (before > gap)
-                before = gap;
-            if (before > 0)
-                update_session(t, s->bookid, t->cur_row_start, midnight - 1,
-                               before, s->cpage);
-            insert_session(t, s, midnight, 0, 0, 0);
-            t->cur_row_start = midnight;
-            gap -= before;
-        }
-
-        update_session(t, s->bookid, t->cur_row_start, s->position_ts, gap,
-                       s->cpage);
-        upsert_book(t, s);
-        t->cur_pos_ts = s->position_ts;
-        return 2;
+    /* Day stats group by date(end_time), so a session must not carry time
+     * across a local midnight: close the row there and continue in a new one. */
+    const int64_t midnight = local_day_start(s->position_ts);
+    if (t->cur_row_start < midnight) {
+        /* The counter says how much presence the row gained, not when within it,
+         * so split it by the wall-clock share that fell before midnight. */
+        const int64_t gained = present - t->cur_row_present;
+        const int64_t span = s->position_ts - t->cur_row_start;
+        const int64_t before =
+            span > 0 ? gained * (midnight - t->cur_row_start) / span : 0;
+        set_session(t, s->bookid, t->cur_row_start, midnight - 1,
+                    measured(before, s->cpage - t->cur_row_pages), s->cpage);
+        insert_session(t, s, midnight, 0, 0, 0);
+        t->cur_row_start = midnight;
+        t->cur_row_present = present - (gained - before);
+        /* cur_row_pages deliberately not reset: the page ceiling is a safety
+         * net, and the day after midnight has no page baseline of its own. */
     }
-    return 0;
+
+    set_session(t, s->bookid, t->cur_row_start, s->position_ts,
+                measured(present - t->cur_row_present,
+                         s->cpage - t->cur_row_pages),
+                s->cpage);
+    upsert_book(t, s);
+    t->cur_pos_ts = s->position_ts;
+    return fresh ? 1 : 2;
 }
