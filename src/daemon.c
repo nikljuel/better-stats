@@ -2,9 +2,7 @@
 #include "daemon.h"
 #include "tracker.h"
 #include <signal.h>
-#include <stdint.h>
 #include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
 #include <sys/inotify.h>
 #include <sys/select.h>
@@ -18,18 +16,6 @@ static void on_term(int sig)
 {
     (void)sig;
     running = 0;
-}
-
-const char *stats_db_path(void)
-{
-    const char *p = getenv("BETTERSTATS_DB");
-    return p ? p : STATS_DB;
-}
-
-const char *explorer_db_path(void)
-{
-    const char *p = getenv("BETTERSTATS_EXPLORER_DB");
-    return p ? p : EXPLORER_DB;
 }
 
 static int daemon_pid_matches(int pid)
@@ -56,9 +42,17 @@ static int daemon_alive(void)
     FILE *f = fopen(PIDFILE, "r");
     if (!f)
         return 0;
+    char line[32];
     int pid = 0;
-    if (fscanf(f, "%d", &pid) != 1)
-        pid = 0;
+    if (fgets(line, sizeof(line), f)) {
+        unsigned int parsed = 0;
+        const char *p = line;
+        while (*p >= '0' && *p <= '9'
+               && parsed <= (2147483647u - (unsigned int)(*p - '0')) / 10u)
+            parsed = parsed * 10u + (unsigned int)(*p++ - '0');
+        if (p != line && (*p == '\n' || *p == '\0') && parsed > 0)
+            pid = (int)parsed;
+    }
     fclose(f);
     if (pid == (int)getpid()) {
         unlink(PIDFILE);
@@ -176,17 +170,4 @@ int run_daemon(void)
     tracker_close(&t);
     unlink(PIDFILE);
     return 0;
-}
-
-void spawn_daemon(const char *self)
-{
-    unlink(LEGACY_PIDFILE);
-    if (daemon_alive())
-        return;
-    pid_t pid = fork();
-    if (pid == 0) {
-        setsid();
-        execl(self, self, "--daemon", (char *)NULL);
-        _exit(1);
-    }
 }

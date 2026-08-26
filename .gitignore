@@ -1,10 +1,13 @@
 # Build output
 build/
 build-qt/
+build-hardfp/
+build-package/
 *.app
 
 # Fetched by `make sdk` (see BUILDING.md)
 third_party/pocketbook-sdk-qt6/
+third_party/pocketbook-sdk-hardfp/
 
 
 # macOS

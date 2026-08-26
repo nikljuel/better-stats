@@ -1,0 +1,25 @@
+/* Link-only InkView stub for hard-float firmware. The real symbols are supplied
+ * by /ebrmain/lib/libinkview.so on the reader. */
+#define STUB(name) void name(void) {}
+
+STUB(ClearScreen)
+STUB(CloseApp)
+STUB(CloseFont)
+STUB(DrawBitmapRect)
+STUB(DrawLine)
+STUB(DrawRect)
+STUB(DrawTextRect)
+STUB(FillArea)
+STUB(FullUpdate)
+STUB(InkViewMain)
+STUB(LoadBitmap)
+STUB(LoadJPEG)
+STUB(LoadPNGStretch)
+STUB(Message)
+STUB(OpenFont)
+STUB(PanelHeight)
+STUB(ScreenHeight)
+STUB(ScreenWidth)
+STUB(SetFont)
+STUB(currentLang)
+STUB(iv_get_default_font)

@@ -3,7 +3,7 @@
 #include <QObject>
 #include <QVariantMap>
 
-struct sqlite3;
+struct bs_context;
 
 /* Bridge between QML and the existing C modules (tracker/stats_db). */
 class StatsBridge : public QObject {
@@ -21,5 +21,5 @@ public:
     Q_INVOKABLE QVariantMap autostartStatus();
 
 private:
-    sqlite3 *db_ = nullptr;
+    bs_context *context_ = nullptr;
 };

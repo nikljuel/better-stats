@@ -1,9 +1,13 @@
 # Building Better Stats
 
-Better Stats is a single ARM ELF that dynamically links the Qt 6.8.2 already
-present on the device (in `/ebrmain`), so nothing Qt-related is bundled. The
-build runs in a Docker container that provides the cross-compiler and the
-matching Qt headers; you don't need Qt or an ARM toolchain on your host.
+Better Stats ships three ARM ELFs behind one small dispatcher:
+
+- `betterstats-qt-softfp` — Qt 6.8.2/QML UI for compatible firmware.
+- `betterstats-inkview-softfp` — Qt-free fallback for normal ARM EABI devices.
+- `betterstats-inkview-hardfp` — Qt-free hard-float build for PB1030/RK3566.
+
+Qt is never bundled; each executable dynamically links the firmware libraries.
+The builds run in Docker, so no host Qt or ARM toolchain is required.
 
 ## Prerequisites
 
@@ -27,10 +31,21 @@ not the full 2.6 GB SDK submodule.
 ## Build
 
 ```bash
-make qt
+make qt       # Qt + InkView, soft-float
+make hardfp   # InkView, hard-float
+make package  # both builds + installable ZIP
 ```
 
-Produces `build-qt/BetterStats.app` (an ARM32 softfp ELF). The Makefile runs:
+The outputs are:
+
+```
+build-qt/betterstats-qt-softfp
+build-qt/betterstats-inkview-softfp
+build-hardfp/betterstats-inkview-hardfp
+build-package/BetterStats-<version>.zip
+```
+
+`make qt` uses:
 
 ```
 docker run --rm -v "$PWD:/src" -w /src \
@@ -39,12 +54,39 @@ docker run --rm -v "$PWD:/src" -w /src \
            && cmake --build build-qt -j8'
 ```
 
+`make hardfp` builds `tools/Dockerfile.hardfp` locally and uses Debian's
+`arm-linux-gnueabihf` cross compiler. Both InkView variants use the same C
+sources. Current outputs require glibc 2.34 or newer; an older firmware toolchain
+should be added only if testing finds a supported device below that baseline.
+
+## Package layout and updates
+
+The ZIP extracts directly onto the reader:
+
+```
+applications/BetterStats.app
+applications/betterstats/current
+applications/betterstats/activate-release
+applications/betterstats/releases/<version>/
+  betterstats-qt-softfp
+  betterstats-inkview-softfp
+  betterstats-inkview-hardfp
+  manifest
+  SHA256SUMS
+```
+
+An updater stages the entire new release directory, then runs
+`activate-release <version>`. The helper validates the release name, all three
+executables and `SHA256SUMS`, then atomically renames a temporary `current` file.
+The previous release remains available if validation fails or power is lost
+before that final rename.
+
 ## Deploy (development)
 
 With the reader mounted over USB:
 
 ```bash
-make deploy          # copies to $(DEVICE)/applications/BetterStats.app
+make deploy          # copies the complete bundle to $(DEVICE)
 ```
 
 Adjust `DEVICE` at the top of the `Makefile` to your reader's mount point
@@ -56,9 +98,8 @@ Adjust `DEVICE` at the top of the `Makefile` to your reader's mount point
 make test
 ```
 
-Builds and runs `test/test_tracker.c` on the host — asserts covering the session
-derivation logic (idle capping, recovery/backfill, dedupe, page accounting). No
-device needed.
+Builds and runs the tracker, EPUB-handler parser, shared statistics model and
+dispatcher/activation checks on the host. No device is needed.
 
 ## Icons
 
@@ -73,28 +114,30 @@ make icons
 ## Project layout
 
 ```
-src/            shared C core (no Qt): tracker, stats DB, daemon
-qt/src/         Qt/C++: main, QML bridges, EPUB cover extraction, icon installer
+src/            shared C core: tracker, statistics model, covers, daemon, setup
+inkview/        Qt-free InkView UI and hard-float link stub
+qt/src/         thin Qt/QML adapters and icon installer
 qt/qml/         the UI (com.pocketbook.controls) + Tr.qml (i18n) + icons
 qt/third_party/ vendored sqlite3 + miniz (source only)
 third_party/    pocketbook-sdk-qt6 (fetched by `make sdk`, git-ignored)
 test/           host-side unit tests
-tools/          icon generator
+packaging/      runtime dispatcher and atomic release activator
+tools/          icon generator and hard-float builder image
 ```
 
 ## How the pieces fit
 
-- `src/*.c` is plain C shared by the daemon and the Qt app: `tracker.c` derives
-  sessions from `explorer-3.db`, `stats_db.c` runs the aggregation queries,
-  `daemon.c` is the poll loop.
-- `qt/src/main.cpp` boots Qt against the device's plugins (QPA `pocketbook2`,
-  software rendering), starts the daemon, and loads the QML scene.
-- `qt/src/stats_bridge.cpp` exposes the C stats to QML; `epub_cover.cpp` pulls
-  covers out of EPUBs with miniz; `installer.cpp` self-registers the launcher
-  icon on first run.
+- `src/*.c` is plain C shared by both UIs. It derives sessions, aggregates every
+  tab, extracts EPUB covers, configures autostart and runs the daemon.
+- `qt/src/main.cpp` boots Qt and creates a ready marker after the QML root loads.
+  `stats_bridge.cpp` only converts the shared C structs to QVariant values.
+- `inkview/main.c` renders the same four tabs directly through InkView and also
+  supplies the daemon entry point for both ABIs.
+- `packaging/BetterStats.app` selects the ABI, starts tracking, attempts Qt and
+  falls back to InkView when no ready marker appears.
 - `qt/qml/` is the UI. Text goes through the `Tr` singleton for DE/EN; all
   spacing/colors come from the firmware's `GlobalValues`.
 
 See the toolchain notes in
 [fstanis/pocketbook-sdk-qt6](https://github.com/fstanis/pocketbook-sdk-qt6) for
-the hard constraints (softfp ABI, `rcc --no-zstd`, exact Qt version match).
+the Qt-side constraints (`rcc --no-zstd`, soft-float ABI and exact Qt version).

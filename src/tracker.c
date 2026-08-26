@@ -45,12 +45,16 @@ int tracker_init(tracker *t, const char *stats_path, const char *explorer_path)
 {
     memset(t, 0, sizeof(*t));
     t->explorer_path = explorer_path;
-    if (sqlite3_open(stats_path, &t->stats) != SQLITE_OK)
+    if (sqlite3_open(stats_path, &t->stats) != SQLITE_OK) {
+        tracker_close(t);
         return -1;
+    }
     sqlite3_busy_timeout(t->stats, 2000);
-    if (exec1(t->stats, SCHEMA) != 0)
+    if (exec1(t->stats, SCHEMA) != 0 || exec1(t->stats, MIGRATE) != 0) {
+        tracker_close(t);
         return -1;
-    return exec1(t->stats, MIGRATE);
+    }
+    return 0;
 }
 
 void tracker_close(tracker *t)

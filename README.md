@@ -2,12 +2,12 @@
 
 Reading statistics for stock PocketBook e-readers — no KOReader, no account, no
 cloud. Better Stats reads what the firmware already records and turns it into the
-kind of stats screen you'd expect from Kobo or Fable, using the firmware's own
-native UI components so it looks like it belongs on the device.
+kind of stats screen you'd expect from Kobo or Fable.
 
-> Built and tested on a **PocketBook Era Lite (PB710), firmware 6.x**. Other
-> Allwinner **B288/B300** readers running Qt 6.8 firmware very likely work but are
-> untested — feedback welcome.
+> Built and tested on a **PocketBook Era Lite (PB710), firmware 6.x**. The bundle
+> also includes a Qt-free InkView UI for soft-float PocketBooks and a separate
+> hard-float build for the PB1030/RK3566 family. Device testing beyond PB710 is
+> still welcome.
 
 | Overview | Streak | Calendar | Year |
 |:---:|:---:|:---:|:---:|
@@ -26,8 +26,11 @@ native UI components so it looks like it belongs on the device.
   tap a day for a breakdown of books and time.
 - **Year** — books finished per month with mini covers; tap a month for the
   finish dates.
-- **Native look** — built from the firmware's own `com.pocketbook.controls` QML
-  components, so typography, spacing and dark/light follow your device settings.
+- **Automatic compatibility fallback** — the launcher tries the richer Qt UI on
+  compatible soft-float firmware and switches to a Qt-free InkView UI if Qt does
+  not reach its ready state. Hard-float devices go directly to InkView.
+- **Native look** — Qt uses the firmware's `com.pocketbook.controls`; the fallback
+  draws with InkView fonts, dialogs and screen updates.
 - **Real covers** — extracted straight from your EPUBs (the firmware's cover
   cache is sometimes wrong for sideloaded/Calibre books).
 - **Bilingual** — German by default, English automatically when the device
@@ -37,7 +40,7 @@ native UI components so it looks like it belongs on the device.
 
 ## How it works
 
-A small background daemon (bundled in the same binary) polls the firmware's
+A small background daemon polls the firmware's
 library database (`explorer-3.db`) **read-only** every 30 seconds and derives
 reading sessions from the book's open time and last position update. Idle gaps
 (standby, long pauses) are capped so they don't count as reading time. If the
@@ -70,12 +73,16 @@ it also creates a marked EPUB handler under `system/bin/` and updates the user
 
 ## Install
 
-1. Download the `.zip` from the [latest release](../../releases/latest) and
-   unzip it to get `BetterStats.app`.
-2. Connect your reader via USB and copy `BetterStats.app` into the
-   `applications` folder (`/mnt/ext1/applications/`).
-3. Eject the reader, open **BetterStats** once, then reboot the reader so the
-   custom icon appears in the apps list.
+1. Download the `.zip` from the [latest release](../../releases/latest).
+2. Connect your reader via USB and extract the ZIP into the reader's top-level
+   directory. It installs `applications/BetterStats.app` plus the versioned
+   binaries below `applications/betterstats/`.
+3. Eject the reader and open **BetterStats** once.
+
+The dispatcher detects soft-float versus hard-float from the firmware loader.
+On soft-float devices it starts Qt first and falls back to InkView only if Qt
+cannot create its root view. Startup decisions and errors are written to
+`system/pbreadstats/app.log` (rotated at 256 KiB).
 
 On first launch Better Stats also sets up EPUB autostart, because the daemon is
 otherwise only running while the app itself is open. It writes a marked handler
@@ -86,14 +93,15 @@ and any reader that already holds the first slot for EPUBs -- KOReader or
 anything else -- is left alone, so it keeps opening your books. Reboot
 the reader once for the change to take effect.
 
-On first launch the app installs its own launcher icon. To do this it adds one
-entry to `system/config/desktop/view.json` and saves a backup next to it
-(`view.json.betterstats-backup`). The custom icon then appears after the reader
-rescans its apps (reboot if needed). If you'd rather not have the config touched,
-the app still runs fine — it just uses the default user-app icon.
+When the Qt UI starts, it installs its own launcher icon by adding one entry to
+`system/config/desktop/view.json` and saving a backup next to it
+(`view.json.betterstats-backup`). The custom icon appears after the reader
+rescans its apps (reboot if needed). InkView-only devices keep the default
+user-app icon.
 
-To uninstall, delete `applications/BetterStats.app`. Books keep opening either
-way — the handler skips a missing app and execs the stock reader regardless — but
+To uninstall, delete `applications/BetterStats.app` and
+`applications/betterstats/`. Books keep opening either way — the handler skips a
+missing app and execs the stock reader regardless — but
 to remove every trace, also delete `system/bin/betterstats-handler.app`, restore
 `system/config/extensions.cfg` from `extensions.cfg.betterstats-backup`, and
 restore `view.json` from its backup (or drop the `U_betterstats` entry). Your
@@ -102,9 +110,9 @@ folder.
 
 ## Building
 
-See [BUILDING.md](BUILDING.md). In short: `make sdk` once, then `make qt`
-produces `build-qt/BetterStats.app`. `make test` runs the host-side tracker
-tests.
+See [BUILDING.md](BUILDING.md). In short: `make sdk` once, then `make package`
+builds Qt/InkView soft-float, InkView hard-float and the installable ZIP.
+`make test` runs the host-side logic and launcher tests.
 
 ## Credits
 

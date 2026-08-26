@@ -1,10 +1,5 @@
-#include <cstring>
-
-extern "C" {
-#include "daemon.h"
-}
-
 #include <QByteArray>
+#include <QFile>
 #include <QFont>
 #include <QGuiApplication>
 #include <QQmlApplicationEngine>
@@ -36,10 +31,6 @@ void selectPlatformPlugin()
 
 int main(int argc, char *argv[])
 {
-    /* Daemon mode before any Qt: pure C loop, no UI. */
-    if (argc > 1 && std::strcmp(argv[1], "--daemon") == 0)
-        return run_daemon();
-
     selectPlatformPlugin();
     QCoreApplication::setSetuidAllowed(true);
 
@@ -57,7 +48,6 @@ int main(int argc, char *argv[])
         QGuiApplication::setFont(QFont(fontFamily));
 
     StatsBridge stats;
-    spawn_daemon(QGuiApplication::applicationFilePath().toUtf8().constData());
 
     QQmlApplicationEngine engine;
     engine.addImportPath(QString::fromUtf8(kQmlPath));
@@ -71,5 +61,11 @@ int main(int argc, char *argv[])
     engine.load(QUrl(QString::fromUtf8(kSceneUrl)));
     if (engine.rootObjects().isEmpty())
         return 1;
+    const QByteArray readyPath = qgetenv("BETTERSTATS_READY_FILE");
+    if (!readyPath.isEmpty()) {
+        QFile ready(QString::fromUtf8(readyPath));
+        if (ready.open(QIODevice::WriteOnly | QIODevice::Truncate))
+            ready.close();
+    }
     return app.exec();
 }

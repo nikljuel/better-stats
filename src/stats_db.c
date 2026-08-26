@@ -14,6 +14,23 @@ static double q_double(sqlite3 *db, const char *sql)
     return v;
 }
 
+static int parse_date(const char *text, struct tm *out)
+{
+    int i;
+    if (!text || strlen(text) != 10 || text[4] != '-' || text[7] != '-')
+        return 0;
+    for (i = 0; i < 10; ++i)
+        if (i != 4 && i != 7 && (text[i] < '0' || text[i] > '9'))
+            return 0;
+    memset(out, 0, sizeof(*out));
+    out->tm_year = (text[0] - '0') * 1000 + (text[1] - '0') * 100
+                 + (text[2] - '0') * 10 + text[3] - '0' - 1900;
+    out->tm_mon = (text[5] - '0') * 10 + text[6] - '0' - 1;
+    out->tm_mday = (text[8] - '0') * 10 + text[9] - '0';
+    return out->tm_mon >= 0 && out->tm_mon < 12
+        && out->tm_mday >= 1 && out->tm_mday <= 31;
+}
+
 int stats_overall(sqlite3 *db, overall_stats *o)
 {
     memset(o, 0, sizeof(*o));
@@ -73,11 +90,9 @@ int stats_overall(sqlite3 *db, overall_stats *o)
         time_t expect = mktime(&tnow);
         while (sqlite3_step(st) == SQLITE_ROW) {
             const char *d = (const char *)sqlite3_column_text(st, 0);
-            struct tm tm = {0};
-            if (!d || sscanf(d, "%d-%d-%d", &tm.tm_year, &tm.tm_mon, &tm.tm_mday) != 3)
+            struct tm tm;
+            if (!parse_date(d, &tm))
                 break;
-            tm.tm_year -= 1900;
-            tm.tm_mon -= 1;
             tm.tm_hour = 12;
             tm.tm_isdst = -1;
             time_t day = mktime(&tm);

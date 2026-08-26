@@ -1,0 +1,18 @@
+#!/bin/sh
+set -eu
+
+base=${BETTERSTATS_BASE:-/mnt/ext1/applications/betterstats}
+version=${1:-}
+case "$version" in
+    ''|*[!A-Za-z0-9._-]*) echo "invalid release name" >&2; exit 1 ;;
+esac
+release="$base/releases/$version"
+for file in betterstats-qt-softfp betterstats-inkview-softfp betterstats-inkview-hardfp; do
+    [ -x "$release/$file" ] || { echo "incomplete release: $file" >&2; exit 1; }
+done
+(cd "$release" && sha256sum -c SHA256SUMS)
+
+temporary="$base/current.tmp.$$"
+trap 'rm -f "$temporary"' EXIT HUP INT TERM
+printf '%s\n' "$version" > "$temporary"
+mv -f "$temporary" "$base/current"
