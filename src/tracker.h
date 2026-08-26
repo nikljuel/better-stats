@@ -43,8 +43,10 @@ typedef struct {
     sqlite3 *stats;
     const char *explorer_path;
     int64_t cur_book, cur_open, cur_pos_ts;
-    int64_t cur_row_present; /* presence total when the current row started */
-    int cur_row_pages;       /* cpage when the current row started */
+    int64_t cur_row_base;    /* active_seconds the row already had when adopted */
+    int64_t cur_row_present; /* presence total when the row was adopted */
+    int cur_row_moved;       /* pages moved since, as distance -- back counts too */
+    int cur_pages_last;      /* last cpage seen, to measure that distance */
     int64_t cur_row_start; /* start_time of the row we currently write to */
 } tracker;
 

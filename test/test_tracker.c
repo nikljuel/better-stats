@@ -258,6 +258,64 @@ int main(void)
                 "DELETE FROM sessions WHERE book_id=99");
     t.cur_book = 0; /* the probe book is gone; don't resume it */
 
+    /* A daemon restart must not wipe the row it takes over. The presence
+     * counter starts at zero again, so without adopting the persisted value the
+     * first observation would set an open session back to nothing. */
+    {
+        pb_state r;
+        memset(&r, 0, sizeof r);
+        r.bookid = 55;
+        r.opentime = 800000;
+        snprintf(r.title, sizeof r.title, "Neustart");
+        r.position_ts = 800060; r.cpage = 10;
+        assert(tracker_observe(&t, &r, 0) == 1);
+        r.position_ts = 800300; r.cpage = 20;
+        assert(tracker_observe(&t, &r, 240) == 2);
+        assert(q1(t.stats, "SELECT active_seconds FROM sessions WHERE start_time=800000") == 240);
+
+        tracker_close(&t);
+        assert(tracker_init(&t, ST_DB, EXP_DB) == 0);
+        r.position_ts = 800600; r.cpage = 30;
+        assert(tracker_observe(&t, &r, 0) == 1); /* fresh tracker, counter at 0 */
+        assert(q1(t.stats, "SELECT active_seconds FROM sessions WHERE start_time=800000") == 240);
+        r.position_ts = 800900; r.cpage = 40;
+        assert(tracker_observe(&t, &r, 120) == 2);
+        assert(q1(t.stats, "SELECT active_seconds FROM sessions WHERE start_time=800000") == 360);
+    }
+
+    /* Reading backwards is reading. A session ending on an earlier page than it
+     * started must not lose its time to a page budget of zero. */
+    {
+        pb_state b;
+        memset(&b, 0, sizeof b);
+        b.bookid = 56;
+        b.opentime = 900000;
+        snprintf(b.title, sizeof b.title, "Rueckwaerts");
+        b.position_ts = 900060; b.cpage = 100;
+        assert(tracker_observe(&t, &b, 0) == 1);
+        b.position_ts = 900600; b.cpage = 120;
+        assert(tracker_observe(&t, &b, 540) == 2);
+        assert(q1(t.stats, "SELECT active_seconds FROM sessions WHERE start_time=900000") == 540);
+        b.position_ts = 900900; b.cpage = 90; /* back past the start page */
+        assert(tracker_observe(&t, &b, 840) == 2);
+        assert(q1(t.stats, "SELECT active_seconds FROM sessions WHERE start_time=900000") == 840);
+    }
+
+    /* A row backfilled as an estimate becomes measured once we track it live,
+     * otherwise it stays excluded from pages/minute and the streak forever. */
+    set_state(exp, 950000, 950500, 300);
+    tracker_close(&t);
+    assert(tracker_init(&t, ST_DB, EXP_DB) == 0);
+    assert(tracker_recover(&t) >= 1);
+    assert(q1(t.stats, "SELECT recovered FROM sessions WHERE start_time=950000") == 1);
+    assert(tracker_read_state(EXP_DB, &s) == 0);
+    assert(tracker_observe(&t, &s, 0) == 1);
+    assert(q1(t.stats, "SELECT recovered FROM sessions WHERE start_time=950000") == 0);
+
+    ex(t.stats, "DELETE FROM books WHERE book_id IN (55,56);"
+                "DELETE FROM sessions WHERE book_id IN (55,56)");
+    t.cur_book = 0;
+
     /* stats_overall computes without crashing and plausibly */
     overall_stats o;
     ex(t.stats, "UPDATE books SET completed=1"); /* for the finished counter */

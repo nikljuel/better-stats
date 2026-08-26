@@ -286,6 +286,38 @@ int tracker_recover(tracker *t)
     return n;
 }
 
+/* Take over a row that already exists -- after a daemon restart the session it
+ * belongs to may still be open. Returns the time it already carries, which
+ * becomes the floor we build on instead of overwriting it with zero. Clearing
+ * `recovered` is part of taking over: from here on the row is measured, not
+ * estimated, and the derived metrics in stats_db.c only count measured rows. */
+static int64_t adopt_row(tracker *t, int64_t bookid, int64_t start_time)
+{
+    sqlite3_stmt *st = NULL;
+    int64_t active = 0;
+    if (sqlite3_prepare_v2(t->stats,
+                           "SELECT active_seconds FROM sessions"
+                           " WHERE book_id=?1 AND start_time=?2",
+                           -1, &st, NULL) == SQLITE_OK) {
+        sqlite3_bind_int64(st, 1, bookid);
+        sqlite3_bind_int64(st, 2, start_time);
+        if (sqlite3_step(st) == SQLITE_ROW)
+            active = sqlite3_column_int64(st, 0);
+        sqlite3_finalize(st);
+    }
+    st = NULL;
+    if (sqlite3_prepare_v2(t->stats,
+                           "UPDATE sessions SET recovered=0"
+                           " WHERE book_id=?1 AND start_time=?2",
+                           -1, &st, NULL) == SQLITE_OK) {
+        sqlite3_bind_int64(st, 1, bookid);
+        sqlite3_bind_int64(st, 2, start_time);
+        sqlite3_step(st);
+        sqlite3_finalize(st);
+    }
+    return active;
+}
+
 int tracker_observe(tracker *t, const pb_state *s, int64_t present)
 {
     if (!s || s->bookid <= 0)
@@ -300,9 +332,19 @@ int tracker_observe(tracker *t, const pb_state *s, int64_t present)
         t->cur_book = s->bookid;
         t->cur_open = s->opentime;
         t->cur_row_start = s->opentime;
+        t->cur_row_base = adopt_row(t, s->bookid, s->opentime);
         t->cur_row_present = present;
-        t->cur_row_pages = s->cpage;
+        t->cur_row_moved = 0;
+        t->cur_pages_last = s->cpage;
     }
+
+    /* Distance, not difference: reading backwards to check something is still
+     * reading, and a session that ends on an earlier page than it started must
+     * not end up with a page budget of zero. */
+    t->cur_row_moved += s->cpage > t->cur_pages_last
+        ? s->cpage - t->cur_pages_last
+        : t->cur_pages_last - s->cpage;
+    t->cur_pages_last = s->cpage;
 
     /* Day stats group by date(end_time), so a session must not carry time
      * across a local midnight: close the row there and continue in a new one. */
@@ -315,17 +357,19 @@ int tracker_observe(tracker *t, const pb_state *s, int64_t present)
         const int64_t before =
             span > 0 ? gained * (midnight - t->cur_row_start) / span : 0;
         set_session(t, s->bookid, t->cur_row_start, midnight - 1,
-                    measured(before, s->cpage - t->cur_row_pages), s->cpage);
+                    t->cur_row_base + measured(before, t->cur_row_moved),
+                    s->cpage);
         insert_session(t, s, midnight, 0, 0, 0);
         t->cur_row_start = midnight;
+        t->cur_row_base = 0;
         t->cur_row_present = present - (gained - before);
-        /* cur_row_pages deliberately not reset: the page ceiling is a safety
-         * net, and the day after midnight has no page baseline of its own. */
+        /* cur_row_moved deliberately not reset: the page budget is a safety
+         * net, and the day after midnight has no movement of its own yet. */
     }
 
     set_session(t, s->bookid, t->cur_row_start, s->position_ts,
-                measured(present - t->cur_row_present,
-                         s->cpage - t->cur_row_pages),
+                t->cur_row_base
+                    + measured(present - t->cur_row_present, t->cur_row_moved),
                 s->cpage);
     upsert_book(t, s);
     t->cur_pos_ts = s->position_ts;
