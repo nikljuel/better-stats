@@ -253,12 +253,17 @@ AutostartStatus autostartStatus()
     const QByteArray handler = installedHandler();
     const bool handlerExists = QFile::exists(QLatin1String(kHandlerPath));
     const bool owned = handler.contains("# Better Stats");
-    status.enabled = inspected.handlerPresent && handler.contains(kHandlerMarker);
+    /* Present is not enough: the firmware only ever runs the first entry, so a
+     * handler that somebody else has moved down the list never executes and the
+     * screen must not claim tracking is on. */
+    status.enabled = inspected.handlerFirst && handler.contains(kHandlerMarker);
     status.available = !inspected.koreaderPresent && (!handlerExists || owned);
     if (inspected.koreaderPresent)
         status.message = QStringLiteral("KOReader association detected");
     else if (handlerExists && !owned)
         status.message = QStringLiteral("EPUB handler path is already in use");
+    else if (inspected.handlerPresent && !inspected.handlerFirst)
+        status.message = QStringLiteral("Another EPUB reader is registered");
     else if (inspected.handlerPresent && !status.enabled)
         status.message = QStringLiteral("Better Stats EPUB handler is missing");
     return status;

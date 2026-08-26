@@ -7,6 +7,9 @@ struct EpubHandlerConfigResult {
     bool ok = false;
     bool changed = false;
     bool handlerPresent = false;
+    /* The firmware runs only the first entry, so being in the list is not the
+     * same as being used. */
+    bool handlerFirst = false;
     bool koreaderPresent = false;
     std::string stockHandler;
     std::string output;

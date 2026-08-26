@@ -51,6 +51,16 @@ int main()
     assert(foreign.output.find("betterstats-handler.app,plato.app,")
            != std::string::npos);
 
+    /* Being in the list is not being used: the firmware runs only the first. */
+    auto second = patchEpubHandlerConfig(
+        "epub:@EPUB_file:1:plato.app,betterstats-handler.app,eink-reader.app:ICON_EPUB\n",
+        "betterstats-handler.app", false);
+    assert(second.ok && second.handlerPresent && !second.handlerFirst);
+    auto firstPos = patchEpubHandlerConfig(
+        "epub:@EPUB_file:1:betterstats-handler.app,eink-reader.app:ICON_EPUB\n",
+        "betterstats-handler.app", false);
+    assert(firstPos.ok && firstPos.handlerPresent && firstPos.handlerFirst);
+
     auto malformed = patchEpubHandlerConfig(
         "epub:@EPUB_file:1:eink-reader.app\n", "betterstats-handler.app", true);
     assert(!malformed.ok && malformed.output == "epub:@EPUB_file:1:eink-reader.app\n");

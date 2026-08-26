@@ -86,6 +86,7 @@ EpubHandlerConfigResult patchEpubHandlerConfig(std::string_view input,
             }
 
             std::vector<std::string> apps = splitApps(line.substr(c3 + 1, c4 - c3 - 1));
+            result.handlerFirst = !apps.empty() && apps.front() == handlerName;
             for (const std::string &app : apps) {
                 if (app == handlerName)
                     result.handlerPresent = true;
