@@ -8,9 +8,6 @@ struct EpubHandlerConfigResult {
     bool changed = false;
     bool handlerPresent = false;
     bool koreaderPresent = false;
-    /* First app in the list when it is neither ours nor a native eink-reader:
-     * somebody else owns the EPUB association and we must not step in front. */
-    std::string foreignFirstHandler;
     std::string stockHandler;
     std::string output;
     std::string error;
@@ -22,8 +19,3 @@ struct EpubHandlerConfigResult {
 EpubHandlerConfigResult patchEpubHandlerConfig(std::string_view input,
                                                std::string_view handlerName,
                                                bool enable);
-
-/* Maps an extensions.cfg handler name to the binary that actually exists in
- * /ebrmain/bin. The "_with_<engine>" names are virtual: only eink-reader.app
- * is a real file. Returns "" if the name is not an eink-reader variant. */
-std::string stockReaderBinary(std::string_view handler);

@@ -57,23 +57,6 @@ bool isStockReader(std::string_view app)
 
 } // namespace
 
-/* Verified on a PB710 (FW 6.8): /ebrmain/bin holds only eink-reader.app --
- * eink-reader_with_blink.app and friends are names, not files, so exec'ing
- * them is what made every earlier autostart attempt fail. libinkview.so keeps
- * the flags -rmsdk/-pdfium/-blink next to those names, but passing -blink to
- * eink-reader.app makes it refuse to open the book (tested), and the default
- * engine paginates identically (npage unchanged). So: strip the suffix, pass
- * no flag. Do not "restore" the engine flag here. */
-std::string stockReaderBinary(std::string_view handler)
-{
-    if (!isStockReader(handler))
-        return {};
-    const size_t with = handler.find("_with_");
-    if (with == std::string_view::npos)
-        return std::string(handler);
-    return std::string(handler.substr(0, with)) + ".app";
-}
-
 EpubHandlerConfigResult patchEpubHandlerConfig(std::string_view input,
                                                std::string_view handlerName,
                                                bool enable)
@@ -112,9 +95,6 @@ EpubHandlerConfigResult patchEpubHandlerConfig(std::string_view input,
                 if (result.stockHandler.empty() && isStockReader(app))
                     result.stockHandler = app;
             }
-            if (!apps.empty() && apps.front() != handlerName
-                && !isStockReader(apps.front()))
-                result.foreignFirstHandler = apps.front();
             if (enable && result.stockHandler.empty()) {
                 result.error = "No native EPUB reader found";
                 return result;

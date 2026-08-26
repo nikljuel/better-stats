@@ -34,32 +34,22 @@ int main()
     assert(ko.output.find("betterstats-handler.app,koreader.app,eink-reader.app")
            != std::string::npos);
 
-    /* Any third-party reader holding the first slot is left alone: stepping in
-     * front of it would hand books to the stock reader instead of theirs. */
-    auto foreign = patchEpubHandlerConfig(
-        "epub:@EPUB_file:1:plato.app,eink-reader_with_blink.app:ICON_EPUB\n",
-        "betterstats-handler.app", true);
-    assert(foreign.ok && !foreign.koreaderPresent);
-    assert(foreign.foreignFirstHandler == "plato.app");
-
     /* KOReader is recognised with and without the .app suffix, any case */
     for (const char *name : {"koreader.app", "koreader", "KOReader.App"}) {
         const std::string cfg = std::string("epub:@EPUB_file:1:") + name
             + ",eink-reader_with_blink.app:ICON_EPUB\n";
         auto r = patchEpubHandlerConfig(cfg, "betterstats-handler.app", true);
         assert(r.koreaderPresent);
-        assert(r.foreignFirstHandler == name);
     }
 
-    /* A native reader in front is not foreign, and neither are we */
-    auto native = patchEpubHandlerConfig(
-        "epub:@EPUB_file:1:eink-reader_with_blink.app:ICON_EPUB\n",
+    /* Any other reader in front is no obstacle: the handler resolves it at run
+     * time and hands the book to it, so we prepend ourselves as usual. */
+    auto foreign = patchEpubHandlerConfig(
+        "epub:@EPUB_file:1:plato.app,eink-reader_with_blink.app:ICON_EPUB\n",
         "betterstats-handler.app", true);
-    assert(native.ok && native.foreignFirstHandler.empty());
-    auto ours = patchEpubHandlerConfig(
-        "epub:@EPUB_file:1:betterstats-handler.app,eink-reader.app:ICON_EPUB\n",
-        "betterstats-handler.app", true);
-    assert(ours.ok && ours.foreignFirstHandler.empty());
+    assert(foreign.ok && foreign.changed && !foreign.koreaderPresent);
+    assert(foreign.output.find("betterstats-handler.app,plato.app,")
+           != std::string::npos);
 
     auto malformed = patchEpubHandlerConfig(
         "epub:@EPUB_file:1:eink-reader.app\n", "betterstats-handler.app", true);
@@ -74,14 +64,6 @@ int main()
         "betterstats-handler.app", false);
     assert(recover.ok && recover.changed
            && recover.output == "epub:@EPUB_file:1::ICON_EPUB\n");
-
-    /* The _with_<engine> names are virtual; only eink-reader.app exists. */
-    assert(stockReaderBinary("eink-reader_with_blink.app") == "eink-reader.app");
-    assert(stockReaderBinary("eink-reader_with_epub2.app") == "eink-reader.app");
-    assert(stockReaderBinary("eink-reader_with_pdfium.app") == "eink-reader.app");
-    assert(stockReaderBinary("eink-reader.app") == "eink-reader.app");
-    assert(stockReaderBinary("koreader.app").empty());
-    assert(stockReaderBinary("../../evil.app").empty());
 
     std::cout << "all file-handler config tests ok\n";
 }

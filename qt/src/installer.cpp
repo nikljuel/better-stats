@@ -148,27 +148,57 @@ QByteArray installedHandler()
     return data;
 }
 
-/* The daemon is backgrounded, then the shell *becomes* the stock reader via
- * exec: same pid, same task slot the firmware already created, no orphaned
- * child. If the daemon line fails for any reason the exec still runs, so a
- * book can never be blocked by the tracking hook. */
-QByteArray handlerScript(const std::string &stockHandler)
+/* The daemon is backgrounded, then the shell *becomes* the reader via exec:
+ * same pid, same task slot the firmware already created, no orphaned child. If
+ * anything before the exec fails the exec still runs, so a book can never be
+ * blocked by the tracking hook.
+ *
+ * Which reader gets the book is resolved at run time from extensions.cfg rather
+ * than baked in here: whoever was the default before us stays the default, even
+ * if the user changes the association later or uses a third-party reader.
+ * /mnt/ext1/applications is in the search path on purpose -- that is where
+ * koreader.app lives, and leaving it out is what makes the winst0niuss fork
+ * hand a KOReader user's book to the stock reader instead. */
+QByteArray handlerScript()
 {
     return QByteArrayLiteral(
         "#!/bin/sh\n"
         "# Better Stats EPUB autostart\n"
+        "self=\"betterstats-handler.app\"\n"
         "app=\"/mnt/ext1/applications/BetterStats.app\"\n"
-            "reader=\"/ebrmain/bin/")
-        + QByteArray::fromStdString(stockReaderBinary(stockHandler))
-        + QByteArrayLiteral(
-            "\"\n"
-            "[ -x \"$app\" ] && \"$app\" --daemon </dev/null >/dev/null 2>&1 &\n"
-            "exec \"$reader\" \"$@\"\n");
+        "cfg=\"/mnt/ext1/system/config/extensions.cfg\"\n"
+        "[ -f \"$cfg\" ] || cfg=\"/ebrmain/config/extensions.cfg\"\n"
+        "\n"
+        "[ -x \"$app\" ] && \"$app\" --daemon </dev/null >/dev/null 2>&1 &\n"
+        "\n"
+        "find_app() {\n"
+        "    for dir in /ebrmain/bin /mnt/ext1/system/bin /mnt/ext1/applications; do\n"
+        "        [ -x \"$dir/$1\" ] && { echo \"$dir/$1\"; return 0; }\n"
+        "    done\n"
+        "    return 1\n"
+        "}\n"
+        "\n"
+        "reader=\"\"\n"
+        "apps=$(grep -i \"^epub:\" \"$cfg\" 2>/dev/null | head -n 1 | cut -d: -f4)\n"
+        "IFS=,\n"
+        "for name in $apps; do\n"
+        "    [ \"$name\" = \"$self\" ] && continue\n"
+        "    reader=$(find_app \"$name\") && break\n"
+        "    # eink-reader_with_blink.app and friends are names, not files:\n"
+        "    # only the part before _with_ exists on disk.\n"
+        "    case \"$name\" in\n"
+        "        *_with_*) reader=$(find_app \"${name%%_with_*}.app\") && break ;;\n"
+        "    esac\n"
+        "done\n"
+        "unset IFS\n"
+        "\n"
+        "[ -n \"$reader\" ] || reader=\"/ebrmain/bin/eink-reader.app\"\n"
+        "exec \"$reader\" \"$@\"\n");
 }
 
-bool writeHandlerScript(const std::string &stockHandler)
+bool writeHandlerScript()
 {
-    const QByteArray wanted = handlerScript(stockHandler);
+    const QByteArray wanted = handlerScript();
     if (installedHandler() == wanted)
         return true; // already current; don't rewrite flash on every launch
     if (!QDir().mkpath(QLatin1String(kHandlerDir)))
@@ -224,13 +254,9 @@ AutostartStatus autostartStatus()
     const bool handlerExists = QFile::exists(QLatin1String(kHandlerPath));
     const bool owned = handler.contains("# Better Stats");
     status.enabled = inspected.handlerPresent && handler.contains(kHandlerMarker);
-    status.available = !inspected.koreaderPresent
-        && inspected.foreignFirstHandler.empty()
-        && (!handlerExists || owned);
+    status.available = !inspected.koreaderPresent && (!handlerExists || owned);
     if (inspected.koreaderPresent)
         status.message = QStringLiteral("KOReader association detected");
-    else if (!inspected.foreignFirstHandler.empty())
-        status.message = QStringLiteral("Another EPUB reader is registered");
     else if (handlerExists && !owned)
         status.message = QStringLiteral("EPUB handler path is already in use");
     else if (inspected.handlerPresent && !status.enabled)
@@ -253,16 +279,14 @@ AutostartStatus setAutostartEnabled(bool enabled)
         status.message = QString::fromStdString(patched.error);
         return status;
     }
-    /* Somebody else owns the EPUB association. Stepping in front of them would
-     * silently route books to the stock reader instead of the reader the user
-     * picked, so leave the list exactly as it is. KOReader bows out even when
-     * it is not first, until Better Stats can actually track it. */
-    if (enabled
-        && (patched.koreaderPresent || !patched.foreignFirstHandler.empty())) {
+    /* A third-party reader in front is no longer a reason to stay out: the
+     * handler resolves it at run time and hands the book straight to it. Only
+     * KOReader still bows out, and by choice rather than necessity -- it does
+     * not write the firmware library, so we would touch somebody's system
+     * config for no data at all. Revisit when KOReader can be tracked. */
+    if (enabled && patched.koreaderPresent) {
         AutostartStatus status;
-        status.message = patched.koreaderPresent
-            ? QStringLiteral("KOReader association detected")
-            : QStringLiteral("Another EPUB reader is registered");
+        status.message = QStringLiteral("KOReader association detected");
         return status;
     }
 
@@ -274,7 +298,7 @@ AutostartStatus setAutostartEnabled(bool enabled)
         return status;
     }
 
-    if (enabled && !writeHandlerScript(patched.stockHandler)) {
+    if (enabled && !writeHandlerScript()) {
         AutostartStatus status;
         status.message = QStringLiteral("Could not install EPUB handler");
         return status;
