@@ -32,7 +32,74 @@ Item {
             anchors.rightMargin: GlobalValues.defaultViewSideMargin
             spacing: Global.dp(20)
 
-            Item { width: 1; height: Global.dp(12) }
+            // Book navigation row (calendar-style: ‹ dots ›)
+            Item {
+                width: parent.width
+                height: GlobalValues.defaultListItemHeight
+                visible: tab.books.length > 1
+
+                StyledText {
+                    anchors.verticalCenter: parent.verticalCenter
+                    anchors.left: parent.left
+                    styledFont: FontStyles.Heading3
+                    color: GlobalValues.defaultTextColor
+                    opacity: tab.bookIdx > 0 ? 1.0 : 0.3
+                    text: "‹"
+                }
+
+                Row {
+                    anchors.centerIn: parent
+                    spacing: Global.dp(8)
+                    Repeater {
+                        model: tab.books.length
+                        Rectangle {
+                            required property int index
+                            width: Global.dp(8)
+                            height: width
+                            radius: width / 2
+                            color: index === tab.bookIdx
+                                   ? GlobalValues.defaultTextColor
+                                   : GlobalValues.defaultBorderColor
+                            MouseArea {
+                                anchors.fill: parent
+                                onClicked: tab.bookIdx = index
+                            }
+                        }
+                    }
+                }
+
+                StyledText {
+                    anchors.verticalCenter: parent.verticalCenter
+                    anchors.right: parent.right
+                    styledFont: FontStyles.Heading3
+                    color: GlobalValues.defaultTextColor
+                    opacity: tab.bookIdx < tab.books.length - 1 ? 1.0 : 0.3
+                    text: "›"
+                }
+
+                MouseArea {
+                    anchors.left: parent.left
+                    anchors.top: parent.top
+                    anchors.bottom: parent.bottom
+                    width: parent.width / 3
+                    enabled: tab.bookIdx > 0
+                    onClicked: tab.bookIdx--
+                }
+
+                MouseArea {
+                    anchors.right: parent.right
+                    anchors.top: parent.top
+                    anchors.bottom: parent.bottom
+                    width: parent.width / 3
+                    enabled: tab.bookIdx < tab.books.length - 1
+                    onClicked: tab.bookIdx++
+                }
+            }
+
+            Item {
+                width: 1
+                height: tab.books.length > 1 ? 0 : Global.dp(12)
+            }
 
             // Current book
             Row {
@@ -99,68 +166,6 @@ Item {
                         styledFont: FontStyles.BodyS
                         color: GlobalValues.defaultDisabledTextColor
                         text: Tr.t("Noch ca. ", "About ") + Tr.fmtHM(tab.book.leftSecs)
-                    }
-                }
-            }
-
-            // Book navigation (only when multiple books)
-            Row {
-                width: parent.width
-                visible: tab.books.length > 1
-                spacing: Global.dp(12)
-
-                Item {
-                    width: Global.dp(36)
-                    height: width
-                    opacity: tab.bookIdx > 0 ? 1.0 : 0.3
-                    StyledText {
-                        anchors.centerIn: parent
-                        styledFont: FontStyles.Heading3
-                        color: GlobalValues.defaultTextColor
-                        text: "<"
-                    }
-                    MouseArea {
-                        anchors.fill: parent
-                        enabled: tab.bookIdx > 0
-                        onClicked: tab.bookIdx--
-                    }
-                }
-
-                Row {
-                    anchors.verticalCenter: parent.verticalCenter
-                    spacing: Global.dp(8)
-                    Repeater {
-                        model: tab.books.length
-                        Rectangle {
-                            required property int index
-                            width: Global.dp(8)
-                            height: width
-                            radius: width / 2
-                            color: index === tab.bookIdx
-                                   ? GlobalValues.defaultTextColor
-                                   : GlobalValues.defaultBorderColor
-                            MouseArea {
-                                anchors.fill: parent
-                                onClicked: tab.bookIdx = index
-                            }
-                        }
-                    }
-                }
-
-                Item {
-                    width: Global.dp(36)
-                    height: width
-                    opacity: tab.bookIdx < tab.books.length - 1 ? 1.0 : 0.3
-                    StyledText {
-                        anchors.centerIn: parent
-                        styledFont: FontStyles.Heading3
-                        color: GlobalValues.defaultTextColor
-                        text: ">"
-                    }
-                    MouseArea {
-                        anchors.fill: parent
-                        enabled: tab.bookIdx < tab.books.length - 1
-                        onClicked: tab.bookIdx++
                     }
                 }
             }
