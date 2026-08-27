@@ -774,6 +774,38 @@ int bs_load_overall(bs_context *context, bs_overall *out, bs_error *error)
     return 0;
 }
 
+static void enrich_book(bs_current_book *out, sqlite3 *explorer, sqlite3 *stats,
+                        int64_t bookid, const char *title, const char *author,
+                        int cpage, int npage, int completed,
+                        const char *cover_key)
+{
+    out->ok = 1;
+    snprintf(out->title, sizeof(out->title), "%s", title);
+    snprintf(out->author, sizeof(out->author), "%s", author);
+    double progress = completed ? 1.0
+        : (npage > 0 ? (double)cpage / npage : 0.0);
+    out->percent = (int)(progress * 100 + 0.5);
+    out->completed = completed != 0;
+    if (explorer)
+        resolve_cover(explorer, stats, title, out->cover_path, NULL);
+    if (!*out->cover_path && safe_cache_key(cover_key)) {
+        snprintf(out->cover_path, sizeof(out->cover_path), COVER_DIR "/%s.png",
+                 cover_key);
+        if (!file_exists(out->cover_path))
+            out->cover_path[0] = '\0';
+    }
+    double pages_per_minute = 0;
+    stats_book(stats, bookid, &out->book_seconds, &pages_per_minute);
+    if (pages_per_minute <= 0) {
+        overall_stats overall;
+        stats_overall(stats, &overall);
+        pages_per_minute = overall.pages_per_min;
+    }
+    if (pages_per_minute > 0 && npage > cpage && !completed)
+        out->left_seconds =
+            (int64_t)((npage - cpage) / pages_per_minute * 60.0);
+}
+
 int bs_load_current_book(bs_context *context, bs_current_book *out,
                          bs_error *error)
 {
@@ -784,36 +816,73 @@ int bs_load_current_book(bs_context *context, bs_current_book *out,
     pb_state state;
     if (tracker_read_state(context->explorer_path, &state) != 0)
         return 0;
-    out->ok = 1;
-    snprintf(out->title, sizeof(out->title), "%s", state.title);
-    snprintf(out->author, sizeof(out->author), "%s", state.author);
-    double progress = state.completed ? 1.0
-        : (state.npage > 0 ? (double)state.cpage / state.npage : 0.0);
-    out->percent = (int)(progress * 100 + 0.5);
-    out->completed = state.completed != 0;
     sqlite3 *explorer = open_explorer(context);
-    if (explorer) {
-        resolve_cover(explorer, context->stats, state.title, out->cover_path, NULL);
+    enrich_book(out, explorer, context->stats, state.bookid, state.title,
+                state.author, state.cpage, state.npage, state.completed,
+                state.cover);
+    if (explorer)
         sqlite3_close(explorer);
-    }
-    if (!*out->cover_path && safe_cache_key(state.cover)) {
-        snprintf(out->cover_path, sizeof(out->cover_path), COVER_DIR "/%s.png",
-                 state.cover);
-        if (!file_exists(out->cover_path))
-            out->cover_path[0] = '\0';
-    }
-    double pages_per_minute = 0;
-    stats_book(context->stats, state.bookid, &out->book_seconds,
-               &pages_per_minute);
-    if (pages_per_minute <= 0) {
-        overall_stats overall;
-        stats_overall(context->stats, &overall);
-        pages_per_minute = overall.pages_per_min;
-    }
-    if (pages_per_minute > 0 && state.npage > state.cpage && !state.completed)
-        out->left_seconds =
-            (int64_t)((state.npage - state.cpage) / pages_per_minute * 60.0);
     return 0;
+}
+
+int bs_load_reading_books(bs_context *context, bs_reading_list *out,
+                          bs_error *error)
+{
+    clear_error(error);
+    if (!context || !out)
+        return fail(error, 1, "Invalid reading-books request");
+    memset(out, 0, sizeof(*out));
+    sqlite3 *explorer = open_explorer(context);
+    if (!explorer)
+        return fail(error, 3, "Firmware library database is unavailable");
+    const char *sql =
+        "SELECT s.bookid, IFNULL(s.cpage,0), IFNULL(s.npage,0),"
+        "  IFNULL(b.title,''), IFNULL(b.author,''),"
+        "  IFNULL((SELECT f.storageid || lower(hex(f.fast_hash)) FROM files f"
+        "          WHERE f.book_id = s.bookid ORDER BY f.storageid LIMIT 1), '')"
+        " FROM books_settings s JOIN books_impl b ON b.id = s.bookid"
+        " WHERE s.opentime > 0 AND s.completed = 0"
+        "  AND EXISTS(SELECT 1 FROM files f WHERE f.book_id = s.bookid)"
+        " ORDER BY s.opentime DESC";
+    sqlite3_stmt *st = NULL;
+    if (sqlite3_prepare_v2(explorer, sql, -1, &st, NULL) != SQLITE_OK) {
+        sql_fail(error, explorer, "Could not load reading books");
+        sqlite3_close(explorer);
+        return -1;
+    }
+    while (sqlite3_step(st) == SQLITE_ROW) {
+        bs_current_book *grown = realloc(out->books,
+            (out->count + 1) * sizeof(*grown));
+        if (!grown) {
+            sqlite3_finalize(st);
+            sqlite3_close(explorer);
+            bs_reading_list_free(out);
+            return fail(error, 4, "Out of memory");
+        }
+        out->books = grown;
+        bs_current_book *book = &out->books[out->count];
+        memset(book, 0, sizeof(*book));
+        enrich_book(book, explorer, context->stats,
+                    sqlite3_column_int64(st, 0),
+                    (const char *)sqlite3_column_text(st, 3),
+                    (const char *)sqlite3_column_text(st, 4),
+                    sqlite3_column_int(st, 1),
+                    sqlite3_column_int(st, 2),
+                    0,
+                    (const char *)sqlite3_column_text(st, 5));
+        ++out->count;
+    }
+    sqlite3_finalize(st);
+    sqlite3_close(explorer);
+    return 0;
+}
+
+void bs_reading_list_free(bs_reading_list *list)
+{
+    if (!list)
+        return;
+    free(list->books);
+    memset(list, 0, sizeof(*list));
 }
 
 int bs_load_year(bs_context *context, int year, bs_year *out, bs_error *error)

@@ -6,11 +6,15 @@ Item {
     id: tab
 
     property var ov: ({})
-    property var book: ({})
+    property var books: []
+    property int bookIdx: 0
+    property var book: books.length > 0 ? books[bookIdx] : ({})
 
     function refresh() {
         ov = stats.overall();
-        book = stats.currentBook();
+        books = stats.readingBooks();
+        if (bookIdx >= books.length)
+            bookIdx = Math.max(0, books.length - 1);
     }
 
     Component.onCompleted: refresh()
@@ -99,8 +103,70 @@ Item {
                 }
             }
 
+            // Book navigation (only when multiple books)
+            Row {
+                width: parent.width
+                visible: tab.books.length > 1
+                spacing: Global.dp(12)
+
+                Item {
+                    width: Global.dp(36)
+                    height: width
+                    opacity: tab.bookIdx > 0 ? 1.0 : 0.3
+                    StyledText {
+                        anchors.centerIn: parent
+                        styledFont: FontStyles.Heading3
+                        color: GlobalValues.defaultTextColor
+                        text: "<"
+                    }
+                    MouseArea {
+                        anchors.fill: parent
+                        enabled: tab.bookIdx > 0
+                        onClicked: tab.bookIdx--
+                    }
+                }
+
+                Row {
+                    anchors.verticalCenter: parent.verticalCenter
+                    spacing: Global.dp(8)
+                    Repeater {
+                        model: tab.books.length
+                        Rectangle {
+                            required property int index
+                            width: Global.dp(8)
+                            height: width
+                            radius: width / 2
+                            color: index === tab.bookIdx
+                                   ? GlobalValues.defaultTextColor
+                                   : GlobalValues.defaultBorderColor
+                            MouseArea {
+                                anchors.fill: parent
+                                onClicked: tab.bookIdx = index
+                            }
+                        }
+                    }
+                }
+
+                Item {
+                    width: Global.dp(36)
+                    height: width
+                    opacity: tab.bookIdx < tab.books.length - 1 ? 1.0 : 0.3
+                    StyledText {
+                        anchors.centerIn: parent
+                        styledFont: FontStyles.Heading3
+                        color: GlobalValues.defaultTextColor
+                        text: ">"
+                    }
+                    MouseArea {
+                        anchors.fill: parent
+                        enabled: tab.bookIdx < tab.books.length - 1
+                        onClicked: tab.bookIdx++
+                    }
+                }
+            }
+
             StyledText {
-                visible: tab.book.ok !== true
+                visible: tab.books.length === 0
                 styledFont: FontStyles.Body
                 color: GlobalValues.defaultDisabledTextColor
                 text: Tr.t("Noch kein Buch geöffnet", "No book opened yet")

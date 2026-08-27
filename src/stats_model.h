@@ -94,6 +94,15 @@ int bs_load_month(bs_context *context, int year, int month, bs_month *out,
 int bs_load_year_books(bs_context *context, int year, bs_year_books *out,
                        bs_error *error);
 
+typedef struct {
+    bs_current_book *books;
+    size_t count;
+} bs_reading_list;
+
+int bs_load_reading_books(bs_context *context, bs_reading_list *out,
+                          bs_error *error);
+void bs_reading_list_free(bs_reading_list *list);
+
 void bs_month_free(bs_month *month);
 void bs_year_books_free(bs_year_books *year);
 

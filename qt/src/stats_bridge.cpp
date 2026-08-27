@@ -192,6 +192,30 @@ QVariantMap StatsBridge::currentBook()
     return out;
 }
 
+QVariantList StatsBridge::readingBooks()
+{
+    bs_reading_list list{};
+    bs_error error{};
+    if (bs_load_reading_books(context_, &list, &error) != 0)
+        return {};
+    QVariantList out;
+    for (size_t i = 0; i < list.count; ++i) {
+        const bs_current_book &b = list.books[i];
+        QVariantMap m;
+        m[QStringLiteral("ok")] = b.ok != 0;
+        m[QStringLiteral("title")] = QString::fromUtf8(b.title);
+        m[QStringLiteral("author")] = QString::fromUtf8(b.author);
+        m[QStringLiteral("percent")] = b.percent;
+        m[QStringLiteral("completed")] = b.completed != 0;
+        m[QStringLiteral("coverUrl")] = coverUrl(b.cover_path);
+        m[QStringLiteral("bookSecs")] = qlonglong(b.book_seconds);
+        m[QStringLiteral("leftSecs")] = qlonglong(b.left_seconds);
+        out.append(m);
+    }
+    bs_reading_list_free(&list);
+    return out;
+}
+
 QVariantMap StatsBridge::year(int value)
 {
     bs_year stats{};
