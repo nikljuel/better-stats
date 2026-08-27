@@ -84,7 +84,8 @@ package: qt hardfp
 	printf '%s\n' "$(PACKAGE_VERSION)" > "$(PACKAGE_ROOT)/applications/betterstats/current"
 	printf 'version=%s\n' "$(PACKAGE_VERSION)" > "$(PACKAGE_RELEASE)/manifest"
 	cd "$(PACKAGE_RELEASE)" && shasum -a 256 betterstats-* > SHA256SUMS
-	cd "$(PACKAGE_ROOT)" && zip -qr "../BetterStats-$(PACKAGE_VERSION).zip" applications
+	cp packaging/INSTALL.txt "$(PACKAGE_ROOT)/INSTALL.txt"
+	cd "$(PACKAGE_ROOT)" && zip -qr "../BetterStats-$(PACKAGE_VERSION).zip" INSTALL.txt applications
 	@echo "Built build-package/BetterStats-$(PACKAGE_VERSION).zip"
 
 # ---- Dev deploy to a USB-mounted reader ----
