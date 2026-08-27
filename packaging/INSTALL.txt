@@ -1,16 +1,10 @@
-Better Stats – Installation
+Better Stats - Installation
 
-1. ZIP entpacken / Extract the ZIP.
-2. Den Ordner "applications" auf den Reader kopieren (oberste Ebene).
-   Copy the "applications" folder to your reader's root directory.
-3. Reader auswerfen und "BetterStats" einmal öffnen.
-   Eject the reader and open "BetterStats" once.
+1. Extract the ZIP.
+2. Copy "BetterStats.app" and the "betterstats" folder
+   into the existing "applications" folder on your reader.
+3. Eject the reader and open BetterStats once.
 
-Beim ersten Start werden das Launcher-Icon und das automatische
-Tracking eingerichtet. Ein Neustart des Readers aktiviert beides.
-Weitere Updates koennen ueber Einstellungen > Jetzt pruefen
-direkt auf dem Geraet installiert werden.
-
-On first launch the launcher icon and automatic tracking are set up.
-Reboot the reader to activate both. Future updates can be installed
-from Settings > Check now directly on the device.
+On first launch the launcher icon and automatic tracking
+are set up. Reboot the reader to activate both.
+Future updates install from Settings > Check now.
