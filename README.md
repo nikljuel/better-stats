@@ -42,14 +42,14 @@ kind of stats screen you'd expect from Kobo or Fable.
 
 ## How it works
 
-A small background daemon polls the firmware's
-library database (`explorer-3.db`) **read-only** every 30 seconds and derives
-reading sessions from the book's open time and last position update. Idle gaps
-(standby, long pauses) are capped so they don't count as reading time. If the
-daemon wasn't running, Better Stats reconstructs a best-effort estimate of the
-last session per book on the next launch. The firmware does not retain enough
-timestamps for an exact reconstruction, so short sessions or pauses can still
-be missed.
+A small background daemon watches the firmware's
+library database (`explorer-3.db`) **read-only** via inotify (falling back to a
+30-second poll where inotify is unavailable) and derives reading sessions from
+the book's open time and last position update. Idle gaps (standby, long pauses)
+are capped so they don't count as reading time. If the daemon wasn't running,
+Better Stats reconstructs a best-effort estimate of the last session per book on
+the next launch. The firmware does not retain enough timestamps for an exact
+reconstruction, so short sessions or pauses can still be missed.
 
 Autostart installs a small EPUB file handler: a shell script that backgrounds the daemon and then `exec`s
 the stock reader, so it *becomes* the reader in the same process and task slot
@@ -104,9 +104,10 @@ and any reader that already holds the first slot for EPUBs -- KOReader or
 anything else -- is left alone, so it keeps opening your books. Reboot
 the reader once for the change to take effect.
 
-When the Qt UI starts, it installs its own launcher icon by adding one entry to
-`system/config/desktop/view.json` and saving a backup next to it
-(`view.json.betterstats-backup`). The custom icon appears after the reader
+When the Qt UI starts, it registers a custom launcher icon by adding one entry
+to `system/config/desktop/view.json` and saving a backup next to it
+(`view.json.betterstats-backup`). The icon is refreshed automatically on each
+launch when a new version ships an updated image. It appears after the reader
 rescans its apps (reboot if needed). InkView-only devices keep the default
 user-app icon.
 

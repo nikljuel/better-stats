@@ -107,10 +107,12 @@ No device is needed.
 ## Icons
 
 The launcher icons are checked in under `qt/qml/` (embedded into the binary as a
-Qt resource). To regenerate them from `tools/make_icon.py`:
+Qt resource). The focused variant uses a filled disc instead of a filled
+rectangle, matching the firmware's round highlight. To regenerate them from
+`tools/make_icon.py`:
 
 ```bash
-pip install Pillow
+pip install Pillow   # or: uv run --with pillow make icons
 make icons
 ```
 
