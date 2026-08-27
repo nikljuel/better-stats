@@ -503,13 +503,6 @@ static int manifest_matches(const char *directory, const char *version)
     return ok;
 }
 
-static int replace_file(const char *source, const char *destination)
-{
-    if (chmod(source, 0755) != 0)
-        return 0;
-    return rename(source, destination) == 0;
-}
-
 static int run_activator(const char *base, const char *version,
                          const char *activator)
 {
@@ -592,7 +585,7 @@ int bs_update_install(bs_update_info *info)
 
     for (int i = 0; ok && i < 3; ++i) {
         path_join(destination, sizeof(destination), stage, release_files[i]);
-        ok = chmod(destination, 0755) == 0 && looks_like_elf(destination);
+        ok = looks_like_elf(destination);
     }
     ok = ok && manifest_matches(stage, info->latest_version)
         && run_checksum(stage);
@@ -620,8 +613,8 @@ int bs_update_install(bs_update_info *info)
     path_join(launcher, sizeof(launcher), install_root(),
               "applications/BetterStats.app");
     path_join(activator, sizeof(activator), base, "activate-release");
-    ok = ok && replace_file(launcher_new, launcher)
-        && replace_file(activator_new, activator);
+    ok = ok && rename(launcher_new, launcher) == 0
+        && rename(activator_new, activator) == 0;
     if (ok) {
         sync();
         ok = run_activator(base, info->latest_version, activator);
