@@ -186,7 +186,7 @@ Item {
                     model: [
                         { v: Tr.fmtHM(tab.ov.todaySecs), l: Tr.t("Gelesen heute", "Read today") },
                         { v: Math.round(tab.ov.avgSessionMin || 0) + "", l: Tr.t("Min pro Session", "Min per session") },
-                        { v: (tab.ov.pagesPerMin || 0).toFixed(1), l: Tr.t("Seiten pro Minute", "Pages per minute") }
+                        { v: ((tab.ov.pagesPerMin || 0) * 60).toFixed(0), l: Tr.t("Seiten pro Stunde", "Pages per hour") }
                     ]
 
                     Column {
