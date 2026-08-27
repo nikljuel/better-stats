@@ -7,3 +7,8 @@ InkView fallback build.
 
 The Overview tab shows all currently reading (non-completed) books with
 arrow navigation. The InkView build shows only the most recently opened book.
+
+## Year Navigation
+
+The Year tab allows browsing past years with arrow navigation.
+The InkView build shows only the current year.

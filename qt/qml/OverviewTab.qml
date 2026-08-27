@@ -32,13 +32,18 @@ Item {
             anchors.rightMargin: GlobalValues.defaultViewSideMargin
             spacing: Global.dp(20)
 
-            // Book navigation row (calendar-style: ‹ dots ›)
-            Item {
-                width: parent.width
-                height: GlobalValues.defaultListItemHeight
-                visible: tab.books.length > 1
+            Item { width: 1; height: Global.dp(12) }
 
+            // Current book with side arrows
+            Item {
+                id: bookSection
+                width: parent.width
+                height: bookRow.height
+                visible: tab.book.ok === true
+
+                // Left arrow
                 StyledText {
+                    visible: tab.books.length > 1
                     anchors.verticalCenter: parent.verticalCenter
                     anchors.left: parent.left
                     styledFont: FontStyles.Heading3
@@ -47,28 +52,19 @@ Item {
                     text: "‹"
                 }
 
-                Row {
-                    anchors.centerIn: parent
-                    spacing: Global.dp(8)
-                    Repeater {
-                        model: tab.books.length
-                        Rectangle {
-                            required property int index
-                            width: Global.dp(8)
-                            height: width
-                            radius: width / 2
-                            color: index === tab.bookIdx
-                                   ? GlobalValues.defaultTextColor
-                                   : GlobalValues.defaultBorderColor
-                            MouseArea {
-                                anchors.fill: parent
-                                onClicked: tab.bookIdx = index
-                            }
-                        }
-                    }
+                MouseArea {
+                    visible: tab.books.length > 1
+                    anchors.left: parent.left
+                    anchors.top: parent.top
+                    anchors.bottom: parent.bottom
+                    width: parent.width / 3
+                    enabled: tab.bookIdx > 0
+                    onClicked: tab.bookIdx--
                 }
 
+                // Right arrow
                 StyledText {
+                    visible: tab.books.length > 1
                     anchors.verticalCenter: parent.verticalCenter
                     anchors.right: parent.right
                     styledFont: FontStyles.Heading3
@@ -78,15 +74,7 @@ Item {
                 }
 
                 MouseArea {
-                    anchors.left: parent.left
-                    anchors.top: parent.top
-                    anchors.bottom: parent.bottom
-                    width: parent.width / 3
-                    enabled: tab.bookIdx > 0
-                    onClicked: tab.bookIdx--
-                }
-
-                MouseArea {
+                    visible: tab.books.length > 1
                     anchors.right: parent.right
                     anchors.top: parent.top
                     anchors.bottom: parent.bottom
@@ -94,78 +82,98 @@ Item {
                     enabled: tab.bookIdx < tab.books.length - 1
                     onClicked: tab.bookIdx++
                 }
-            }
 
-            Item {
-                width: 1
-                height: tab.books.length > 1 ? 0 : Global.dp(12)
-            }
+                Row {
+                    id: bookRow
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    width: parent.width - (tab.books.length > 1 ? Global.dp(60) : 0)
+                    spacing: Global.dp(20)
 
-            // Current book
-            Row {
-                width: parent.width
-                spacing: Global.dp(20)
-                visible: tab.book.ok === true
+                    Image {
+                        id: cover
+                        source: tab.book.coverUrl || ""
+                        visible: (tab.book.coverUrl || "") !== ""
+                        width: Global.dp(110)
+                        height: Global.dp(165)
+                        fillMode: Image.PreserveAspectFit
+                    }
 
-                Image {
-                    id: cover
-                    source: tab.book.coverUrl || ""
-                    visible: (tab.book.coverUrl || "") !== ""
-                    width: Global.dp(110)
-                    height: Global.dp(165)
-                    fillMode: Image.PreserveAspectFit
+                    Column {
+                        width: parent.width
+                               - (cover.visible ? cover.width + Global.dp(20) : 0)
+                        spacing: Global.dp(8)
+
+                        StyledText {
+                            width: parent.width
+                            styledFont: FontStyles.Heading4
+                            color: GlobalValues.defaultTextColor
+                            text: tab.book.title || ""
+                            wrapMode: Text.Wrap
+                            maximumLineCount: 2
+                            elide: Text.ElideRight
+                        }
+
+                        StyledText {
+                            width: parent.width
+                            styledFont: FontStyles.BodyS
+                            color: GlobalValues.defaultDisabledTextColor
+                            text: tab.book.author || ""
+                            elide: Text.ElideRight
+                        }
+
+                        Item { width: 1; height: Global.dp(6) }
+
+                        StyledText {
+                            styledFont: FontStyles.Body
+                            color: GlobalValues.defaultTextColor
+                            text: Tr.t("Fortschritt: ", "Progress: ") + (tab.book.percent || 0) + " %"
+                        }
+
+                        ProgressBar {
+                            width: parent.width
+                            height: Global.dp(10)
+                            minValue: 0
+                            maxValue: 100
+                            value: tab.book.percent || 0
+                        }
+
+                        StyledText {
+                            styledFont: FontStyles.BodyS
+                            color: GlobalValues.defaultDisabledTextColor
+                            text: Tr.t("Gelesen: ", "Read: ") + Tr.fmtHM(tab.book.bookSecs)
+                        }
+
+                        StyledText {
+                            visible: (tab.book.leftSecs || 0) > 0
+                            styledFont: FontStyles.BodyS
+                            color: GlobalValues.defaultDisabledTextColor
+                            text: Tr.t("Noch ca. ", "About ") + Tr.fmtHM(tab.book.leftSecs)
+                        }
+                    }
                 }
+            }
 
-                Column {
-                    width: parent.width
-                           - (cover.visible ? cover.width + Global.dp(20) : 0)
-                    spacing: Global.dp(8)
-
-                    StyledText {
-                        width: parent.width
-                        styledFont: FontStyles.Heading4
-                        color: GlobalValues.defaultTextColor
-                        text: tab.book.title || ""
-                        wrapMode: Text.Wrap
-                        maximumLineCount: 2
-                        elide: Text.ElideRight
-                    }
-
-                    StyledText {
-                        width: parent.width
-                        styledFont: FontStyles.BodyS
-                        color: GlobalValues.defaultDisabledTextColor
-                        text: tab.book.author || ""
-                        elide: Text.ElideRight
-                    }
-
-                    Item { width: 1; height: Global.dp(6) }
-
-                    StyledText {
-                        styledFont: FontStyles.Body
-                        color: GlobalValues.defaultTextColor
-                        text: Tr.t("Fortschritt: ", "Progress: ") + (tab.book.percent || 0) + " %"
-                    }
-
-                    ProgressBar {
-                        width: parent.width
-                        height: Global.dp(10)
-                        minValue: 0
-                        maxValue: 100
-                        value: tab.book.percent || 0
-                    }
-
-                    StyledText {
-                        styledFont: FontStyles.BodyS
-                        color: GlobalValues.defaultDisabledTextColor
-                        text: Tr.t("Gelesen: ", "Read: ") + Tr.fmtHM(tab.book.bookSecs)
-                    }
-
-                    StyledText {
-                        visible: (tab.book.leftSecs || 0) > 0
-                        styledFont: FontStyles.BodyS
-                        color: GlobalValues.defaultDisabledTextColor
-                        text: Tr.t("Noch ca. ", "About ") + Tr.fmtHM(tab.book.leftSecs)
+            // Page dots
+            Row {
+                anchors.horizontalCenter: parent.horizontalCenter
+                visible: tab.books.length > 1
+                spacing: Global.dp(8)
+                Repeater {
+                    model: tab.books.length
+                    Rectangle {
+                        required property int index
+                        width: Global.dp(8)
+                        height: width
+                        radius: width / 2
+                        color: index === tab.bookIdx
+                               ? GlobalValues.defaultTextColor
+                               : "transparent"
+                        border.width: index === tab.bookIdx ? 0 : Global.dp(1)
+                        border.color: GlobalValues.defaultTextColor
+                        MouseArea {
+                            anchors.fill: parent
+                            onClicked: tab.bookIdx = index
+                        }
                     }
                 }
             }

@@ -6,9 +6,10 @@ Item {
     id: tab
 
     property var yb: ({ months: [], total: 0 })
-    readonly property int yearNum: new Date().getFullYear()
-    /* Only show future months once they arrive. */
-    readonly property int monthCount: new Date().getMonth() + 1
+    property int yearNum: new Date().getFullYear()
+    readonly property int thisYear: new Date().getFullYear()
+    readonly property int monthCount: yearNum === thisYear
+                                      ? new Date().getMonth() + 1 : 12
     readonly property var monthNames: Tr.monthsShort
     readonly property var monthNamesFull: Tr.monthsFull
 
@@ -33,6 +34,11 @@ Item {
         return mx;
     }
 
+    function shiftYear(delta) {
+        yearNum += delta;
+        refresh();
+    }
+
     function refresh() {
         yb = stats.yearBooks(yearNum);
     }
@@ -50,22 +56,62 @@ Item {
         anchors.rightMargin: tab.sideMargin
         spacing: Global.dp(10)
 
-        Item { width: 1; height: Global.dp(10) }
-
-        Row {
-            spacing: Global.dp(12)
+        Item {
+            width: parent.width
+            height: GlobalValues.defaultListItemHeight
 
             StyledText {
-                styledFont: FontStyles.Heading1
+                anchors.verticalCenter: parent.verticalCenter
+                anchors.left: parent.left
+                styledFont: FontStyles.Heading3
                 color: GlobalValues.defaultTextColor
-                text: tab.yb.total || 0
+                opacity: tab.yearNum > 2015 ? 1.0 : 0.3
+                text: "‹"
+            }
+
+            Row {
+                anchors.centerIn: parent
+                spacing: Global.dp(12)
+
+                StyledText {
+                    styledFont: FontStyles.Heading1
+                    color: GlobalValues.defaultTextColor
+                    text: tab.yb.total || 0
+                }
+
+                StyledText {
+                    anchors.verticalCenter: parent.verticalCenter
+                    styledFont: FontStyles.Body
+                    color: GlobalValues.defaultDisabledTextColor
+                    text: Tr.t("Bücher beendet in ", "Books finished in ") + tab.yearNum
+                }
             }
 
             StyledText {
                 anchors.verticalCenter: parent.verticalCenter
-                styledFont: FontStyles.Body
-                color: GlobalValues.defaultDisabledTextColor
-                text: Tr.t("Bücher beendet in ", "Books finished in ") + tab.yearNum
+                anchors.right: parent.right
+                styledFont: FontStyles.Heading3
+                color: GlobalValues.defaultTextColor
+                opacity: tab.yearNum < tab.thisYear ? 1.0 : 0.3
+                text: "›"
+            }
+
+            MouseArea {
+                anchors.left: parent.left
+                anchors.top: parent.top
+                anchors.bottom: parent.bottom
+                width: parent.width / 3
+                enabled: tab.yearNum > 2015
+                onClicked: tab.shiftYear(-1)
+            }
+
+            MouseArea {
+                anchors.right: parent.right
+                anchors.top: parent.top
+                anchors.bottom: parent.bottom
+                width: parent.width / 3
+                enabled: tab.yearNum < tab.thisYear
+                onClicked: tab.shiftYear(1)
             }
         }
 
