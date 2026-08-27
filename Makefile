@@ -40,7 +40,7 @@ test:
 	  test/test_stats_model.c src/stats_model.c src/tracker.c src/stats_db.c \
 	  qt/third_party/miniz.c -lsqlite3
 	./build/test_stats_model
-	cc $(CFLAGS) -DSTATS_DIR='"/tmp/bs_update_test"' \
+	cc $(CFLAGS) -rdynamic -DSTATS_DIR='"/tmp/bs_update_test"' \
 	  -Isrc -Iqt/third_party -o build/test_updater \
 	  test/test_updater.c src/updater.c qt/third_party/miniz.c -lsqlite3 -ldl
 	./build/test_updater

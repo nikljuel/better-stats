@@ -188,10 +188,8 @@ int bs_update_network_connected(void)
     return get_state && get_state() == 2; /* InkView CONNECTED */
 }
 
-static int connect_network(bs_update_info *info)
+static int start_network(bs_update_info *info)
 {
-    if (bs_update_network_connected())
-        return 1;
     int (*silent)(const char *) =
         (int (*)(const char *))symbol("NetConnectSilent");
     if (silent && silent(NULL) == 0)
@@ -206,6 +204,19 @@ static int connect_network(bs_update_info *info)
         return 1;
     fail(info, BS_UPDATE_ERR_NETWORK, "Wi-Fi is not connected");
     return 0;
+}
+
+static int connect_network(bs_update_info *info)
+{
+    return bs_update_network_connected() || start_network(info);
+}
+
+static int reconnect_network(bs_update_info *info)
+{
+    int (*disconnect)(void) = (int (*)(void))symbol("NetDisconnect");
+    if (disconnect)
+        disconnect();
+    return start_network(info);
 }
 
 static int write_download(const void *data, int size, const char *path)
@@ -242,8 +253,7 @@ static int download_to(bs_update_info *info, const char *url, const char *path,
         int size = 0;
         int net_error = 0;
         void *data = quick3
-            ? quick3(url, &size, timeout,
-                     "User-Agent: BetterStats", NULL, &net_error)
+            ? quick3(url, &size, timeout, NULL, NULL, &net_error)
             : quick(url, &size, timeout);
         const int written = write_download(data, size, path);
         free(data);
@@ -251,9 +261,10 @@ static int download_to(bs_update_info *info, const char *url, const char *path,
             update_log("downloaded %d bytes from %s", size, url);
             return 0;
         }
-        if (attempt < retry)
-            connect_network(info);
-        else
+        if (attempt < retry) {
+            if (!reconnect_network(info))
+                return info->error;
+        } else
             return fail(info, BS_UPDATE_ERR_DOWNLOAD,
                         "Download failed (%d)", net_error);
     }
@@ -377,7 +388,7 @@ int bs_update_check(bs_update_info *info, int connect_if_needed)
     char json_path[1024];
     path_join(json_path, sizeof(json_path), update_root(), "latest.json");
     unlink(json_path);
-    if (download_to(info, API_URL, json_path, 20, 0) != 0)
+    if (download_to(info, API_URL, json_path, 20, 1) != 0)
         return info->error;
     char *json = read_file(json_path);
     unlink(json_path);

@@ -2,11 +2,64 @@
 
 #include <assert.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
 void stop_daemon(void) {}
+
+static int network_state = 2;
+static int failures_remaining;
+static int download_count;
+static int disconnect_count;
+static int connect_count;
+
+int GetNetState(void)
+{
+    return network_state;
+}
+
+int NetDisconnect(void)
+{
+    ++disconnect_count;
+    network_state = 0;
+    return 0;
+}
+
+int NetConnectSilent(const char *name)
+{
+    assert(name == NULL);
+    ++connect_count;
+    network_state = 2;
+    return 0;
+}
+
+void *QuickDownloadExt3(const char *url, int *size, int timeout,
+                        char *cookie, char *post, int *error)
+{
+    static const char response[] =
+        "{\"tag_name\":\"v1.2.4\",\"draft\":false,\"prerelease\":false,"
+        "\"assets\":[{\"name\":\"BetterStats-v1.2.4.zip\","
+        "\"browser_download_url\":\"https://github.com/nikljuel/better-stats/"
+        "releases/download/v1.2.4/BetterStats-v1.2.4.zip\",\"size\":123}]}";
+    assert(strstr(url, "releases/latest") != NULL);
+    assert(timeout == 20);
+    assert(cookie == NULL);
+    assert(post == NULL);
+    ++download_count;
+    *error = 0;
+    if (failures_remaining > 0) {
+        --failures_remaining;
+        *size = 0;
+        return NULL;
+    }
+    *size = (int)strlen(response);
+    char *data = malloc((size_t)*size);
+    assert(data != NULL);
+    memcpy(data, response, (size_t)*size);
+    return data;
+}
 
 int main(void)
 {
@@ -37,6 +90,24 @@ int main(void)
     assert(!bs_update_auto_enabled());
     assert(bs_update_set_auto_enabled(1) == 0);
     assert(bs_update_auto_enabled());
+
+    setenv("BETTERSTATS_INSTALL_ROOT", "/tmp/bs_update_install", 1);
+    mkdir("/tmp/bs_update_install", 0755);
+    mkdir("/tmp/bs_update_install/applications", 0755);
+    mkdir("/tmp/bs_update_install/applications/betterstats", 0755);
+    FILE *current = fopen(
+        "/tmp/bs_update_install/applications/betterstats/current", "w");
+    assert(current != NULL);
+    assert(fputs("v1.2.3\n", current) >= 0);
+    assert(fclose(current) == 0);
+
+    failures_remaining = 1;
+    memset(&info, 0, sizeof(info));
+    assert(bs_update_check(&info, 0) == BS_UPDATE_AVAILABLE);
+    assert(download_count == 2);
+    assert(disconnect_count == 1);
+    assert(connect_count == 1);
+    assert(strcmp(info.latest_version, "v1.2.4") == 0);
 
     puts("all updater tests ok");
     return 0;
