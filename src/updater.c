@@ -242,7 +242,8 @@ static int download_to(bs_update_info *info, const char *url, const char *path,
         int size = 0;
         int net_error = 0;
         void *data = quick3
-            ? quick3(url, &size, timeout, NULL, NULL, &net_error)
+            ? quick3(url, &size, timeout,
+                     "User-Agent: BetterStats", NULL, &net_error)
             : quick(url, &size, timeout);
         const int written = write_download(data, size, path);
         free(data);
@@ -268,18 +269,6 @@ static int copy_column(char *out, size_t size, sqlite3_stmt *statement, int colu
     return 1;
 }
 
-static int valid_digest(char digest[65], const char *value)
-{
-    if (!value || strncmp(value, "sha256:", 7) != 0 || strlen(value + 7) != 64)
-        return 0;
-    for (int i = 0; i < 64; ++i) {
-        if (!isxdigit((unsigned char)value[i + 7]))
-            return 0;
-        digest[i] = (char)tolower((unsigned char)value[i + 7]);
-    }
-    digest[64] = '\0';
-    return 1;
-}
 
 int bs_update_parse_release(const char *json, bs_update_info *info)
 {
@@ -313,8 +302,8 @@ int bs_update_parse_release(const char *json, bs_update_info *info)
              info->latest_version);
     const char *asset_sql =
         "SELECT json_extract(value,'$.browser_download_url'),"
-        " CAST(json_extract(value,'$.size') AS INTEGER),"
-        " json_extract(value,'$.digest') FROM json_each(?1,'$.assets')"
+        " CAST(json_extract(value,'$.size') AS INTEGER)"
+        " FROM json_each(?1,'$.assets')"
         " WHERE json_extract(value,'$.name')=?2 LIMIT 1";
     if (ok)
         ok = sqlite3_prepare_v2(db, asset_sql, -1, &statement, NULL) == SQLITE_OK;
@@ -324,9 +313,7 @@ int bs_update_parse_release(const char *json, bs_update_info *info)
         ok = sqlite3_step(statement) == SQLITE_ROW
             && copy_column(info->asset_url, sizeof(info->asset_url), statement, 0);
         info->asset_size = ok ? sqlite3_column_int64(statement, 1) : 0;
-        const unsigned char *digest = ok ? sqlite3_column_text(statement, 2) : NULL;
-        ok = ok && info->asset_size > 0
-            && valid_digest(info->digest, (const char *)digest);
+        ok = ok && info->asset_size > 0;
     }
     char expected_url[512];
     snprintf(expected_url, sizeof(expected_url),
@@ -529,7 +516,7 @@ static int run_activator(const char *base, const char *version,
 int bs_update_install(bs_update_info *info)
 {
     if (!safe_name(info->latest_version) || !*info->asset_url
-        || info->asset_size <= 0 || strlen(info->digest) != 64)
+        || info->asset_size <= 0)
         return fail(info, BS_UPDATE_ERR_ASSET, "No checked release to install");
     if (!connect_network(info))
         return info->error;
@@ -542,11 +529,9 @@ int bs_update_install(bs_update_info *info)
     if (download_to(info, info->asset_url, zip_path, 60, 1) != 0)
         return info->error;
     struct stat zip_stat;
-    char digest[65];
     if (stat(zip_path, &zip_stat) != 0
         || zip_stat.st_size != info->asset_size
-        || !sha256_file(zip_path, digest)
-        || strcmp(digest, info->digest) != 0) {
+        || !sha256_file(zip_path, info->digest)) {
         unlink(zip_path);
         return fail(info, BS_UPDATE_ERR_CORRUPT,
                     "Downloaded ZIP failed its size or SHA-256 check");
