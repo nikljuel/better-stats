@@ -22,15 +22,38 @@ Window {
         title: root.title
         onClose: Qt.quit()
 
-        // AppHeader 2.0 places child controls in its right-hand action row.
-        BitmapButton {
+        Rectangle {
             width: GlobalValues.defaultListItemHeight
             height: GlobalValues.defaultListItemHeight
-            icon: "image://resource/settings"
-            pressedIcon: "image://resource_inv/settings"
-            onAction: {
-                settingsDialog.refresh()
-                settingsDialog.visible = true
+            radius: width / 2
+            color: settingsTap.pressed
+                   ? GlobalValues.defaultTextColor : "transparent"
+
+            Canvas {
+                anchors.centerIn: parent
+                width: parent.width * 0.45
+                height: parent.height * 0.45
+                property bool inv: settingsTap.pressed
+                onInvChanged: requestPaint()
+                onPaint: {
+                    var ctx = getContext("2d");
+                    ctx.clearRect(0, 0, width, height);
+                    ctx.fillStyle = inv
+                        ? GlobalValues.defaultBackgroundColor
+                        : GlobalValues.defaultTextColor;
+                    var barH = Math.max(Math.round(height / 10), 1);
+                    var gap = (height - 3 * barH) / 2;
+                    for (var i = 0; i < 3; i++)
+                        ctx.fillRect(0, i * (barH + gap), width, barH);
+                }
+            }
+
+            TapHandler {
+                id: settingsTap
+                onTapped: {
+                    settingsDialog.refresh()
+                    settingsDialog.visible = true
+                }
             }
         }
     }

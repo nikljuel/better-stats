@@ -173,19 +173,14 @@ static void fill_round_rect(int x, int y, int width, int height,
 
 static void draw_settings_icon(int center_x, int center_y)
 {
-    static const signed char teeth[][2] = {
-        {-1, -1}, {0, -1}, {1, -1}, {-1, 0},
-        {1, 0}, {-1, 1}, {0, 1}, {1, 1}
-    };
-    int tooth = dp(3);
-    int offset = dp(8);
-    size_t i;
-    for (i = 0; i < sizeof(teeth) / sizeof(teeth[0]); ++i)
-        FillArea(center_x + teeth[i][0] * offset - tooth / 2,
-                 center_y + teeth[i][1] * offset - tooth / 2,
-                 tooth, tooth, BLACK);
-    fill_circle(center_x, center_y, dp(7), BLACK);
-    fill_circle(center_x, center_y, dp(3), WHITE);
+    int w = dp(18);
+    int bar_h = dp(2);
+    int gap = dp(5);
+    int x = center_x - w / 2;
+    int i;
+    for (i = -1; i <= 1; ++i)
+        FillArea(x, center_y + i * (bar_h + gap) - bar_h / 2,
+                 w, bar_h, BLACK);
 }
 
 static void draw_donut(int center_x, int center_y, int radius,

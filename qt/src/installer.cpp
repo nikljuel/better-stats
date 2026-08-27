@@ -26,16 +26,26 @@ constexpr const char *kBackup =
     "/mnt/ext1/system/config/desktop/view.json.betterstats-backup";
 constexpr const char *kAppId = "U_betterstats";
 
-void writeResourceIfMissing(const QString &resource, const QString &dest)
+/* Compare rather than skip when the file is already there: the icons ship with
+ * the app and change between releases, so an existing install must pick the new
+ * one up. Skipping on equal content keeps this a no-op on every later start
+ * instead of rewriting flash each time. */
+void writeResourceIfChanged(const QString &resource, const QString &dest)
 {
-    if (QFile::exists(dest))
-        return;
     QFile src(resource);
-    if (src.open(QIODevice::ReadOnly)) {
-        QFile out(dest);
-        if (out.open(QIODevice::WriteOnly))
-            out.write(src.readAll());
+    if (!src.open(QIODevice::ReadOnly))
+        return;
+    const QByteArray data = src.readAll();
+    QFile existing(dest);
+    if (existing.open(QIODevice::ReadOnly)) {
+        const bool same = existing.readAll() == data;
+        existing.close();
+        if (same)
+            return;
     }
+    QFile out(dest);
+    if (out.open(QIODevice::WriteOnly))
+        out.write(data);
 }
 
 void patchViewJson()
@@ -97,9 +107,9 @@ AutostartStatus fromCore(const bs_autostart_status &source)
 void ensureRegistered()
 {
     QDir().mkpath(QLatin1String(kIconDir));
-    writeResourceIfMissing(QStringLiteral(":/betterstats.bmp"),
+    writeResourceIfChanged(QStringLiteral(":/betterstats.bmp"),
                            QLatin1String(kIconPath));
-    writeResourceIfMissing(QStringLiteral(":/betterstats_f.bmp"),
+    writeResourceIfChanged(QStringLiteral(":/betterstats_f.bmp"),
                            QLatin1String(kIconFocusedPath));
     patchViewJson();
     setAutostartEnabled(true);

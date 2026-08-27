@@ -37,7 +37,7 @@ int main(int argc, char *argv[])
 
     const ScreenSize screen = openInkViewScreen();
 
-    // Register the launcher icon on first run (idempotent, no-op afterwards).
+    // Register the launcher icon, refreshing it if this build ships a new one.
     ensureRegistered();
 
     QQuickWindow::setGraphicsApi(QSGRendererInterface::Software);
