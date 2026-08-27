@@ -115,11 +115,11 @@ void StatsBridge::checkForUpdates()
 void StatsBridge::checkForUpdates(bool automatic)
 {
     setUpdateState("checking");
-    const int result = bs_update_check(&update_, automatic ? 0 : 1);
+    const int result = bs_update_check(
+        &update_, automatic ? BS_UPDATE_CONNECT_SILENT
+                            : BS_UPDATE_CONNECT_PROMPT);
     if (result == BS_UPDATE_AVAILABLE) {
         setUpdateState("available");
-        if (automatic)
-            installUpdate();
     } else {
         setUpdateState(result == BS_UPDATE_CURRENT ? "current" : "error");
     }
@@ -148,7 +148,7 @@ void StatsBridge::installUpdate()
 
 void StatsBridge::automaticUpdate()
 {
-    if (automaticUpdates() && bs_update_network_connected())
+    if (automaticUpdates())
         checkForUpdates(true);
 }
 

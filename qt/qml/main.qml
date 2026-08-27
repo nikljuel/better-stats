@@ -155,6 +155,78 @@ Window {
         }
     }
 
+    Connections {
+        target: stats
+
+        function onUpdateChanged() {
+            if (stats.updateState === "available" && !settingsDialog.visible)
+                updateDialog.visible = true
+        }
+    }
+
+    PanelDialog {
+        id: updateDialog
+
+        title: Tr.t("Update verfügbar", "Update available")
+
+        StyledText {
+            width: parent.width
+            styledFont: FontStyles.BodyL
+            color: GlobalValues.defaultTextColor
+            wrapMode: Text.Wrap
+            text: Tr.t("Version %1 ist verfügbar.",
+                       "Version %1 is available.").arg(stats.latestVersion)
+        }
+
+        Row {
+            width: parent.width
+            spacing: Global.dp(12)
+
+            Rectangle {
+                width: (parent.width - parent.spacing) / 2
+                height: Global.dp(48)
+                color: GlobalValues.defaultTextColor
+
+                StyledText {
+                    anchors.centerIn: parent
+                    styledFont: FontStyles.BodyLBold
+                    color: GlobalValues.defaultBackgroundColor
+                    text: Tr.t("Jetzt installieren", "Install now")
+                }
+
+                MouseArea {
+                    anchors.fill: parent
+                    onClicked: {
+                        updateDialog.visible = false
+                        settingsDialog.refresh()
+                        settingsDialog.visible = true
+                        stats.installUpdate()
+                    }
+                }
+            }
+
+            Rectangle {
+                width: (parent.width - parent.spacing) / 2
+                height: Global.dp(48)
+                color: GlobalValues.defaultBackgroundColor
+                border.width: GlobalValues.dialogBorderWidth
+                border.color: GlobalValues.defaultTextColor
+
+                StyledText {
+                    anchors.centerIn: parent
+                    styledFont: FontStyles.BodyLBold
+                    color: GlobalValues.defaultTextColor
+                    text: Tr.t("Später", "Later")
+                }
+
+                MouseArea {
+                    anchors.fill: parent
+                    onClicked: updateDialog.visible = false
+                }
+            }
+        }
+    }
+
     PanelDialog {
         id: settingsDialog
 
@@ -262,7 +334,8 @@ Window {
                     width: parent.width
                     styledFont: FontStyles.BodyL
                     color: GlobalValues.defaultTextColor
-                    text: Tr.t("Automatisch aktualisieren", "Automatic updates")
+                    text: Tr.t("Automatisch nach Updates suchen",
+                               "Check for updates automatically")
                 }
 
                 StyledText {
@@ -270,8 +343,9 @@ Window {
                     styledFont: FontStyles.BodyS
                     color: GlobalValues.defaultDisabledTextColor
                     wrapMode: Text.Wrap
-                    text: Tr.t("Beim Start, wenn WLAN bereits verbunden ist.",
-                               "On launch when Wi-Fi is already connected.")
+                    text: Tr.t(
+                        "Prüft beim Start über bekanntes WLAN; Installation nach Bestätigung.",
+                        "Checks on launch over known Wi-Fi; installs after confirmation.")
                 }
             }
 

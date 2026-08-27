@@ -869,20 +869,19 @@ static const char *update_error_text(void)
     }
 }
 
-static void install_update(int automatic)
+static void install_update(void)
 {
     ShowHourglass();
     int result = bs_update_install(&app.update);
     HideHourglass();
     if (result != 0) {
-        if (!automatic)
-            Message(ICON_WARNING, tr("Update", "Update"),
-                    update_error_text(), 5000);
+        Message(ICON_WARNING, tr("Update", "Update"),
+                update_error_text(), 5000);
         return;
     }
     if (bs_update_restart() == 0) {
         CloseApp();
-    } else if (!automatic) {
+    } else {
         Message(ICON_WARNING, tr("Update", "Update"),
                 tr("Neustart fehlgeschlagen.", "Restart failed."), 5000);
     }
@@ -891,29 +890,26 @@ static void install_update(int automatic)
 static void update_dialog_handler(int button)
 {
     if (button == 1)
-        install_update(0);
+        install_update();
 }
 
 static void check_for_updates(int automatic)
 {
-    if (automatic
-        && (!bs_update_auto_enabled() || !bs_update_network_connected()))
+    if (automatic && !bs_update_auto_enabled())
         return;
     ShowHourglass();
-    int result = bs_update_check(&app.update, automatic ? 0 : 1);
+    int result = bs_update_check(
+        &app.update, automatic ? BS_UPDATE_CONNECT_SILENT
+                               : BS_UPDATE_CONNECT_PROMPT);
     HideHourglass();
     if (result == BS_UPDATE_AVAILABLE) {
-        if (automatic) {
-            install_update(1);
-        } else {
-            char message[256];
-            snprintf(message, sizeof(message),
-                     tr("Version %s ist verfügbar.", "Version %s is available."),
-                     app.update.latest_version);
-            Dialog(ICON_QUESTION, tr("Update", "Update"), message,
-                   tr("Installieren", "Install"), tr("Abbrechen", "Cancel"),
-                   update_dialog_handler);
-        }
+        char message[256];
+        snprintf(message, sizeof(message),
+                 tr("Version %s ist verfügbar.", "Version %s is available."),
+                 app.update.latest_version);
+        Dialog(ICON_QUESTION, tr("Update", "Update"), message,
+               tr("Jetzt installieren", "Install now"),
+               tr("Später", "Later"), update_dialog_handler);
     } else if (!automatic) {
         Message(result == BS_UPDATE_CURRENT ? ICON_INFORMATION : ICON_WARNING,
                 tr("Update", "Update"),
@@ -954,7 +950,7 @@ static void show_settings(void)
                          "Automatic tracking is not active.")),
              tr("Installiert", "Installed"),
              *app.update.current_version ? app.update.current_version : "–",
-             tr("Automatische Updates", "Automatic updates"),
+             tr("Automatische Update-Suche", "Automatic update checks"),
              bs_update_auto_enabled() ? tr("Ein", "On") : tr("Aus", "Off"));
     Dialog3(ICON_INFORMATION, tr("Einstellungen", "Settings"), message,
             bs_update_auto_enabled() ? tr("Ausschalten", "Turn off")

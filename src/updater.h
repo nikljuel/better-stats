@@ -17,6 +17,12 @@ enum {
     BS_UPDATE_ERR_UNSUPPORTED = -7
 };
 
+enum {
+    BS_UPDATE_CONNECT_NONE = 0,
+    BS_UPDATE_CONNECT_PROMPT = 1,
+    BS_UPDATE_CONNECT_SILENT = 2
+};
+
 typedef struct {
     char current_version[64];
     char latest_version[64];
@@ -31,7 +37,7 @@ int bs_update_auto_enabled(void);
 int bs_update_set_auto_enabled(int enabled);
 int bs_update_network_connected(void);
 int bs_update_read_current(bs_update_info *info);
-int bs_update_check(bs_update_info *info, int connect_if_needed);
+int bs_update_check(bs_update_info *info, int connect_mode);
 int bs_update_install(bs_update_info *info);
 int bs_update_restart(void);
 

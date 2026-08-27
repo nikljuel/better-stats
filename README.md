@@ -69,8 +69,9 @@ what you see in the Library.
 
 Reading data stays on the device. There is no account and no telemetry. Network
 access is only used to check and download releases from this GitHub repository:
-automatically at app launch when enabled and Wi-Fi is already connected, or
-when **Check now** is selected in Settings. Better Stats only **reads** the
+automatically at app launch when enabled by silently connecting to a configured
+Wi-Fi network, or when **Check now** is selected in Settings. Better Stats only
+**reads** the
 firmware database. It writes its own stats database and cover cache under
 `system/pbreadstats/`; it also creates a marked EPUB handler under `system/bin/`
 and updates the user `extensions.cfg` (with a backup before the first change).
@@ -84,11 +85,14 @@ and updates the user `extensions.cfg` (with a backup before the first change).
 3. Eject the reader and open **BetterStats** once.
 
 This USB install is only required once. Later stable releases can be installed
-from **Settings → Check now**. Automatic updates are on by default; they check
-only when Wi-Fi is already connected, validate the release ZIP with its GitHub
-SHA-256 digest, activate the complete multi-ABI bundle atomically and restart
-Better Stats. Switching automatic updates off does not disable the manual
-Wi-Fi update button; a manual check can connect Wi-Fi when needed.
+from **Settings → Check now**. Automatic update checks are on by default; at app
+launch they silently connect to a configured Wi-Fi network and ask before
+installing a new release. Choosing **Later** stores nothing, so the next launch
+checks again for the newest release. Confirmed updates are validated with their
+GitHub SHA-256 digest, activated atomically and restart Better Stats. PocketBook
+controls when Wi-Fi disconnects again. Switching automatic checks off does not
+disable the manual Wi-Fi update button; a manual check can show the connection
+dialog when needed.
 
 The dispatcher detects soft-float versus hard-float from the firmware loader.
 On soft-float devices it starts Qt first and falls back to InkView only if Qt

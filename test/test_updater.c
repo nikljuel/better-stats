@@ -13,7 +13,9 @@ static int network_state = 2;
 static int failures_remaining;
 static int download_count;
 static int disconnect_count;
-static int connect_count;
+static int silent_connect_count;
+static int prompt_connect_count;
+static int silent_result;
 
 int GetNetState(void)
 {
@@ -30,9 +32,25 @@ int NetDisconnect(void)
 int NetConnectSilent(const char *name)
 {
     assert(name == NULL);
-    ++connect_count;
-    network_state = 2;
-    return 0;
+    ++silent_connect_count;
+    if (silent_result == 0)
+        network_state = 2;
+    return silent_result;
+}
+
+int NetConnect2(const char *name, int flags)
+{
+    assert(name == NULL);
+    assert(flags == 0);
+    ++prompt_connect_count;
+    return -1;
+}
+
+int NetConnect(const char *name)
+{
+    assert(name == NULL);
+    ++prompt_connect_count;
+    return -1;
 }
 
 void *QuickDownloadExt3(const char *url, int *size, int timeout,
@@ -103,11 +121,35 @@ int main(void)
 
     failures_remaining = 1;
     memset(&info, 0, sizeof(info));
-    assert(bs_update_check(&info, 0) == BS_UPDATE_AVAILABLE);
+    assert(bs_update_check(&info, BS_UPDATE_CONNECT_NONE)
+           == BS_UPDATE_AVAILABLE);
     assert(download_count == 2);
     assert(disconnect_count == 1);
-    assert(connect_count == 1);
+    assert(silent_connect_count == 1);
     assert(strcmp(info.latest_version, "v1.2.4") == 0);
+
+    network_state = 0;
+    download_count = 0;
+    disconnect_count = 0;
+    silent_connect_count = 0;
+    memset(&info, 0, sizeof(info));
+    assert(bs_update_check(&info, BS_UPDATE_CONNECT_SILENT)
+           == BS_UPDATE_AVAILABLE);
+    assert(download_count == 1);
+    assert(disconnect_count == 0);
+    assert(silent_connect_count == 1);
+    assert(prompt_connect_count == 0);
+
+    network_state = 0;
+    download_count = 0;
+    silent_connect_count = 0;
+    silent_result = -1;
+    memset(&info, 0, sizeof(info));
+    assert(bs_update_check(&info, BS_UPDATE_CONNECT_SILENT)
+           == BS_UPDATE_ERR_NETWORK);
+    assert(download_count == 0);
+    assert(silent_connect_count == 1);
+    assert(prompt_connect_count == 0);
 
     puts("all updater tests ok");
     return 0;

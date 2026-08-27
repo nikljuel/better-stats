@@ -188,12 +188,16 @@ int bs_update_network_connected(void)
     return get_state && get_state() == 2; /* InkView CONNECTED */
 }
 
-static int start_network(bs_update_info *info)
+static int start_network(bs_update_info *info, int prompt)
 {
     int (*silent)(const char *) =
         (int (*)(const char *))symbol("NetConnectSilent");
     if (silent && silent(NULL) == 0)
         return 1;
+    if (!prompt) {
+        fail(info, BS_UPDATE_ERR_NETWORK, "Wi-Fi is not connected");
+        return 0;
+    }
     int (*connect2)(const char *, int) =
         (int (*)(const char *, int))symbol("NetConnect2");
     if (connect2 && connect2(NULL, 0) == 0)
@@ -206,9 +210,9 @@ static int start_network(bs_update_info *info)
     return 0;
 }
 
-static int connect_network(bs_update_info *info)
+static int connect_network(bs_update_info *info, int prompt)
 {
-    return bs_update_network_connected() || start_network(info);
+    return bs_update_network_connected() || start_network(info, prompt);
 }
 
 static int reconnect_network(bs_update_info *info)
@@ -216,7 +220,7 @@ static int reconnect_network(bs_update_info *info)
     int (*disconnect)(void) = (int (*)(void))symbol("NetDisconnect");
     if (disconnect)
         disconnect();
-    return start_network(info);
+    return start_network(info, 0);
 }
 
 static int write_download(const void *data, int size, const char *path)
@@ -375,12 +379,13 @@ static char *read_file(const char *path)
     return data;
 }
 
-int bs_update_check(bs_update_info *info, int connect_if_needed)
+int bs_update_check(bs_update_info *info, int connect_mode)
 {
     memset(info, 0, sizeof(*info));
     if (bs_update_read_current(info) != 0)
         return info->error;
-    if (connect_if_needed && !connect_network(info))
+    if (connect_mode != BS_UPDATE_CONNECT_NONE
+        && !connect_network(info, connect_mode == BS_UPDATE_CONNECT_PROMPT))
         return info->error;
 
     if (!make_dir(STATS_DIR) || !make_dir(update_root()))
@@ -522,7 +527,7 @@ int bs_update_install(bs_update_info *info)
     if (!safe_name(info->latest_version) || !*info->asset_url
         || info->asset_size <= 0)
         return fail(info, BS_UPDATE_ERR_ASSET, "No checked release to install");
-    if (!connect_network(info))
+    if (!connect_network(info, 0))
         return info->error;
     if (!make_dir(STATS_DIR) || !make_dir(update_root()))
         return fail(info, BS_UPDATE_ERR_INSTALL, "Could not create update directory");
