@@ -52,6 +52,7 @@ typedef struct {
     int loaded_tab;
     int dialog;
     int dialog_index;
+    int dialog_scroll;
     int auto_update_scheduled;
 } app_state;
 
@@ -65,6 +66,7 @@ typedef struct {
     int close_w;
     int close_h;
     int columns;
+    int content_h;
 } dialog_layout;
 
 typedef struct {
@@ -676,11 +678,13 @@ static dialog_layout detail_dialog_layout(size_t count)
     if (rows < 1)
         rows = 1;
     int tile_h = dp(150) + dp(30);
-    int height = dp(16) + dp(40) + dp(16)
-               + rows * tile_h + (rows - 1) * gap + dp(20);
+    int tiles_h = rows * tile_h + (rows - 1) * gap;
+    int header = dp(16) + dp(40) + dp(16);
+    int height = header + tiles_h + dp(20);
     int available = app.content_height - content_top();
     out.w = width;
     out.h = imin(height, available - dp(20));
+    out.content_h = tiles_h;
     out.x = (app.width - out.w) / 2;
     out.y = content_top() + (available - out.h) / 2;
     out.close_w = dp(48);
@@ -725,14 +729,27 @@ static void draw_detail_dialog(void)
     int tile_w = dp(100);
     int cover_h = dp(150);
     int gap = dp(16);
+    int tile_h = cover_h + dp(30);
     int tiles_top = layout.y + dp(72);
+    int visible_h = layout.y + layout.h - dp(8) - tiles_top;
+    int visible_rows = (visible_h + gap) / (tile_h + gap);
+    if (visible_rows < 1)
+        visible_rows = 1;
+    int total_rows = (int)((count + layout.columns - 1) / layout.columns);
+    int max_scroll = total_rows - visible_rows;
+    if (max_scroll < 0)
+        max_scroll = 0;
+    if (app.dialog_scroll > max_scroll)
+        app.dialog_scroll = max_scroll;
     size_t i;
     for (i = 0; i < count; ++i) {
+        int row = (int)i / layout.columns - app.dialog_scroll;
+        if (row < 0)
+            continue;
         int column = (int)i % layout.columns;
-        int row = (int)i / layout.columns;
         int x = layout.x + dp(20) + column * (tile_w + gap);
-        int y = tiles_top + row * (cover_h + dp(30) + gap);
-        if (y + cover_h + dp(28) > layout.y + layout.h - dp(8))
+        int y = tiles_top + row * (tile_h + gap);
+        if (y + tile_h > layout.y + layout.h - dp(8))
             break;
         draw_cover(books[i].cover_path, books[i].title,
                    x, y, tile_w, cover_h);
@@ -747,6 +764,15 @@ static void draw_detail_dialog(void)
         set_font(app.small, BLACK);
         text(x, y + cover_h + dp(5), tile_w, dp(25), caption,
              ALIGN_CENTER | VALIGN_MIDDLE | DOTS);
+    }
+    if (max_scroll > 0) {
+        int pages = max_scroll + 1;
+        int page = app.dialog_scroll + 1;
+        char indicator[16];
+        snprintf(indicator, sizeof(indicator), "%d/%d", page, pages);
+        set_font(app.small, DGRAY);
+        text(layout.x, layout.y + layout.h - dp(24),
+             layout.w, dp(20), indicator, ALIGN_CENTER | VALIGN_MIDDLE);
     }
 }
 
@@ -833,6 +859,7 @@ static void show_day(int day)
         return;
     app.dialog = DIALOG_DAY;
     app.dialog_index = day - 1;
+    app.dialog_scroll = 0;
     draw();
 }
 
@@ -843,6 +870,7 @@ static void show_month(int month)
         return;
     app.dialog = DIALOG_MONTH;
     app.dialog_index = month - 1;
+    app.dialog_scroll = 0;
     draw();
 }
 
@@ -980,6 +1008,29 @@ static void pointer_up(int x, int y)
                         layout.close_w, layout.close_h)) {
             app.dialog = DIALOG_NONE;
             draw();
+            return;
+        }
+        int tile_h = dp(150) + dp(30);
+        int gap = dp(16);
+        int tiles_top = layout.y + dp(72);
+        int visible_h = layout.y + layout.h - dp(8) - tiles_top;
+        int visible_rows = (visible_h + gap) / (tile_h + gap);
+        if (visible_rows < 1) visible_rows = 1;
+        int total_rows = (int)((count + layout.columns - 1) / layout.columns);
+        int max_scroll = total_rows - visible_rows;
+        if (max_scroll > 0 && y >= tiles_top) {
+            int mid = (tiles_top + layout.y + layout.h) / 2;
+            if (y >= mid && app.dialog_scroll < max_scroll) {
+                app.dialog_scroll += visible_rows;
+                if (app.dialog_scroll > max_scroll)
+                    app.dialog_scroll = max_scroll;
+                draw();
+            } else if (y < mid && app.dialog_scroll > 0) {
+                app.dialog_scroll -= visible_rows;
+                if (app.dialog_scroll < 0)
+                    app.dialog_scroll = 0;
+                draw();
+            }
         }
         return;
     }

@@ -28,15 +28,17 @@ Item {
         anchors.centerIn: parent
         width: Math.min(GlobalValues.defaultDialogWidth,
                         dlg.width - Global.dp(40))
-        height: panelContent.height + 2 * Global.dp(16)
+        height: Math.min(
+            Global.dp(88) + contentSlot.implicitHeight,
+            dlg.height - Global.dp(80))
         color: GlobalValues.defaultBackgroundColor
         border.width: GlobalValues.dialogBorderWidth
         border.color: GlobalValues.defaultTextColor
 
         MouseArea { anchors.fill: parent } // swallows taps inside the panel
 
-        Column {
-            id: panelContent
+        Item {
+            id: titleBar
 
             anchors.top: parent.top
             anchors.left: parent.left
@@ -44,50 +46,57 @@ Item {
             anchors.topMargin: Global.dp(16)
             anchors.leftMargin: Global.dp(20)
             anchors.rightMargin: Global.dp(20)
-            spacing: Global.dp(16)
+            height: Global.dp(40)
+
+            StyledText {
+                anchors.verticalCenter: parent.verticalCenter
+                anchors.left: parent.left
+                anchors.right: closeBox.left
+                styledFont: FontStyles.Heading4
+                color: GlobalValues.defaultTextColor
+                text: dlg.title
+                elide: Text.ElideRight
+            }
 
             Item {
-                width: parent.width
-                height: Global.dp(40)
+                id: closeBox
+                anchors.right: parent.right
+                anchors.top: parent.top
+                width: Global.dp(48)
+                height: Global.dp(48)
 
                 StyledText {
-                    anchors.verticalCenter: parent.verticalCenter
-                    anchors.left: parent.left
-                    anchors.right: closeBox.left
+                    anchors.centerIn: parent
                     styledFont: FontStyles.Heading4
                     color: GlobalValues.defaultTextColor
-                    text: dlg.title
-                    elide: Text.ElideRight
+                    text: "X"
                 }
 
-                Item {
-                    id: closeBox
-                    anchors.right: parent.right
-                    anchors.top: parent.top
-                    width: Global.dp(48)
-                    height: Global.dp(48)
-
-                    StyledText {
-                        anchors.centerIn: parent
-                        styledFont: FontStyles.Heading4
-                        color: GlobalValues.defaultTextColor
-                        text: "X"
-                    }
-
-                    MouseArea {
-                        anchors.fill: parent
-                        onClicked: dlg.visible = false
-                    }
+                MouseArea {
+                    anchors.fill: parent
+                    onClicked: dlg.visible = false
                 }
             }
+        }
+
+        Flickable {
+            anchors.top: titleBar.bottom
+            anchors.topMargin: Global.dp(16)
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.bottom: parent.bottom
+            anchors.leftMargin: Global.dp(20)
+            anchors.rightMargin: Global.dp(20)
+            anchors.bottomMargin: Global.dp(16)
+            contentHeight: contentSlot.implicitHeight
+            clip: true
+            boundsBehavior: Flickable.StopAtBounds
 
             Column {
                 id: contentSlot
                 width: parent.width
                 spacing: Global.dp(12)
             }
-
-            Item { width: 1; height: Global.dp(4) }
         }
     }
 }
