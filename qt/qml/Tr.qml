@@ -37,4 +37,18 @@ QtObject {
             return h + "h " + (m < 10 ? "0" : "") + m + "m";
         return de ? (m + " Min") : (m + " min");
     }
+
+    // "2026-08-18" -> "Tue, 18 Aug 2026" - added for the Hardcover sync
+    // integration (ported from a downstream fork), shared so any part of
+    // the app formats dates the same way, e.g. the background auto-sync's
+    // finish-confirmation dialog at the app root.
+    function friendlyDate(iso) {
+        if (!iso)
+            return "";
+        var d = new Date(iso + "T00:00:00");
+        if (isNaN(d.getTime()))
+            return iso;
+        return weekdaysShort[(d.getDay() + 6) % 7] + ", " + d.getDate()
+               + " " + monthsShort[d.getMonth()] + " " + d.getFullYear();
+    }
 }

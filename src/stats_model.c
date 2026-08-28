@@ -968,6 +968,7 @@ static void enrich_book(bs_current_book *out, sqlite3 *explorer, sqlite3 *stats,
                         const char *cover_key)
 {
     out->ok = 1;
+    out->bookid = bookid;
     snprintf(out->title, sizeof(out->title), "%s", title);
     snprintf(out->author, sizeof(out->author), "%s", author);
     double progress = completed ? 1.0

@@ -58,6 +58,169 @@ Window {
         }
     }
 
+    // --- Hardcover sync integration, ported from a downstream fork - see
+    // its own PR description for the full feature. ---
+
+    // Checked once per app launch, not on a timer - a QTimer inside this
+    // GUI process almost certainly doesn't fire while backgrounded, which
+    // is most of the time this app would be "open." daemon.c (a separate,
+    // continuously-running process) does the actual completion detection
+    // in the background; this just checks what it found.
+    Component.onCompleted: hardcover.checkPendingFinishConfirm()
+
+    Connections {
+        target: hardcover
+
+        function onAutoSyncNeedsFinishConfirm(bookId, finishedAtDate, title) {
+            autoSyncFinishDialog.bookId = bookId;
+            autoSyncFinishDialog.title = Tr.t("Automatisch erkannt", "Automatically detected");
+            autoSyncFinishDialog.message = Tr.t(
+                "\u201e" + title + "\u201c als gelesen markieren, mit Enddatum: "
+                    + Tr.friendlyDate(finishedAtDate) + "?",
+                "Mark \u201c" + title + "\u201d as Read, with finish date: "
+                    + Tr.friendlyDate(finishedAtDate) + "?");
+            autoSyncFinishDialog.visible = true;
+        }
+
+        // Hardcover already has this book marked Read, with the same date
+        // we were about to ask about - purely informational, so both
+        // buttons on this dialog do the same thing (acknowledge and clear
+        // the flag), rather than introducing a single-button dialog
+        // pattern just for this one case.
+        function onAutoSyncAlreadyFinished(bookId, finishedAtDate, title) {
+            alreadyFinishedDialog.bookId = bookId;
+            alreadyFinishedDialog.finishedAt = finishedAtDate;
+            // InfoMessage has no separate title property - just message,
+            // so "Already in sync" folds into the message text itself.
+            alreadyFinishedDialog.message = Tr.t(
+                "Bereits synchronisiert: \u201e" + title + "\u201c wurde bei Hardcover bereits als gelesen markiert, mit Enddatum: "
+                    + Tr.friendlyDate(finishedAtDate) + ".",
+                "Already in sync: \u201c" + title + "\u201d was already marked as finished on Hardcover, with date: "
+                    + Tr.friendlyDate(finishedAtDate) + ".");
+            alreadyFinishedDialog.visible = true;
+        }
+
+        // Hardcover has this book marked Read, but with a different finish
+        // date than what we have locally (e.g. edited by hand on the
+        // Hardcover site itself) - offers to update Hardcover's own date
+        // to match ours. Reuses confirmFinish/declineFinish underneath,
+        // same as the normal finish-confirm flow: the actual API call
+        // (push status=Read with our finishedAt) is identical either way,
+        // only the prompt differs.
+        function onAutoSyncNeedsDateUpdate(bookId, existingDate, correctDate, title) {
+            dateUpdateDialog.bookId = bookId;
+            // The existing, unchanged Hardcover date - stored for the "No"
+            // path, which needs to record what's actually still true on
+            // Hardcover (nothing pushed), not the value we were proposing.
+            dateUpdateDialog.existingDate = existingDate;
+            dateUpdateDialog.title = Tr.t("Enddatum abweichend", "Finish date differs");
+            dateUpdateDialog.message = Tr.t(
+                "\u201e" + title + "\u201c ist bei Hardcover als gelesen markiert, mit Enddatum "
+                    + Tr.friendlyDate(existingDate) + ". Auf "
+                    + Tr.friendlyDate(correctDate) + " aktualisieren?",
+                "\u201c" + title + "\u201d is marked as finished on Hardcover, with date "
+                    + Tr.friendlyDate(existingDate) + ". Update it to "
+                    + Tr.friendlyDate(correctDate) + "?");
+            dateUpdateDialog.visible = true;
+        }
+    }
+
+    // App-root version of the same finish-confirmation OverviewTab.qml
+    // shows for a manual "Sync progress" press - this one can appear
+    // regardless of which tab is currently open, since background sync
+    // isn't tied to viewing any particular book.
+    //
+    // z: 1000 is required: the tab bar and tab content below are both
+    // declared later in this file, and QML's default "later siblings
+    // paint on top" rule means they would otherwise paint OVER this
+    // dialog no matter how opaque it claims to be, regardless of
+    // anchors.fill: parent. Confirmed as a real, on-device bug in the
+    // fork this was ported from - without an explicit z here, the
+    // dialog's own border never actually covers the full window, with
+    // whichever tab is open still visible around and through it.
+    ActionConfirmationDialog {
+        id: autoSyncFinishDialog
+        z: 1000
+        anchors.fill: parent
+        visible: false
+
+        property var bookId: -1
+
+        applyTitle: Tr.t("Ja", "Yes")
+        cancelTitle: Tr.t("Nein", "No")
+
+        onApply: {
+            hardcover.confirmFinish(autoSyncFinishDialog.bookId);
+            autoSyncFinishDialog.visible = false;
+        }
+        onCancel: {
+            hardcover.declineFinish(autoSyncFinishDialog.bookId);
+            autoSyncFinishDialog.visible = false;
+        }
+        onClose: autoSyncFinishDialog.visible = false
+    }
+
+    // Purely informational - acknowledges and clears the flag once shown,
+    // nothing to actually decide, so this is InfoMessage (dismisses itself
+    // after autohideInterval, or immediately on a tap anywhere else), not
+    // ActionConfirmationDialog (which always renders two buttons). Same z
+    // reasoning as autoSyncFinishDialog above.
+    InfoMessage {
+        id: alreadyFinishedDialog
+        z: 1000
+        anchors.fill: parent
+        visible: false
+        autohideInterval: 3000
+        icon: InfoMessage.InformationIcon
+
+        property var bookId: -1
+        property string finishedAt: ""
+
+        onClose: {
+            hardcover.acknowledgeAlreadyFinished(alreadyFinishedDialog.bookId,
+                                                  alreadyFinishedDialog.finishedAt);
+            alreadyFinishedDialog.visible = false;
+        }
+    }
+
+    // Reuses confirmFinish/declineFinish - see onAutoSyncNeedsDateUpdate's
+    // own comment above for why. Same z reasoning as autoSyncFinishDialog
+    // above.
+    ActionConfirmationDialog {
+        id: dateUpdateDialog
+        z: 1000
+        anchors.fill: parent
+        visible: false
+
+        property var bookId: -1
+        property string existingDate: ""
+
+        applyTitle: Tr.t("Ja", "Yes")
+        cancelTitle: Tr.t("Nein", "No")
+
+        onApply: {
+            // Not confirmFinish() - that would redundantly re-run the
+            // whole "check Hardcover's status first" logic, which already
+            // ran once to get us this exact prompt. confirmDateUpdate()
+            // just pushes directly, since the answer is already known.
+            hardcover.confirmDateUpdate(dateUpdateDialog.bookId);
+            dateUpdateDialog.visible = false;
+        }
+        onCancel: {
+            // Not declineFinish() - that pushes status=Reading, which
+            // would incorrectly revert a book Hardcover already has
+            // correctly marked Read, just because the date update itself
+            // was declined. Only the flag needs clearing; Hardcover's own,
+            // already-correct Read status shouldn't be touched at all -
+            // recorded as existingDate (what's actually still there), not
+            // the date we'd proposed and the user just declined.
+            hardcover.acknowledgeAlreadyFinished(dateUpdateDialog.bookId,
+                                                  dateUpdateDialog.existingDate);
+            dateUpdateDialog.visible = false;
+        }
+        onClose: dateUpdateDialog.visible = false
+    }
+
     // Firmware-style tab bar: four large zones, active tab underlined.
     Item {
         id: tabBar

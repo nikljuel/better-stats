@@ -44,6 +44,10 @@ typedef struct {
 
 typedef struct {
     int ok;
+    /* Added for the Hardcover sync integration below - every Hardcover
+     * operation (link, sync, confirm finish) needs to know which book
+     * it's acting on, and this struct previously had no way to say. */
+    int64_t bookid;
     char title[BS_TITLE_MAX];
     char author[BS_AUTHOR_MAX];
     char cover_path[BS_PATH_MAX];
