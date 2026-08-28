@@ -17,12 +17,12 @@ typedef struct {
     char *output;
     size_t output_size;
     char error[128];
-} epub_handler_config_result;
+} handler_config_result;
 
-int patch_epub_handler_config(const char *input, size_t input_size,
-                              const char *handler_name, int enable,
-                              epub_handler_config_result *out);
-void free_epub_handler_config(epub_handler_config_result *result);
+int patch_handler_config(const char *input, size_t input_size,
+                         const char *format, const char *handler_name,
+                         int enable, handler_config_result *out);
+void free_handler_config(handler_config_result *result);
 
 #ifdef __cplusplus
 }

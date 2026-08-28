@@ -544,6 +544,185 @@ static int extract_epub_cover(const char *epub, const char *key,
     return ok;
 }
 
+static size_t base64_decode(const char *src, size_t src_len,
+                            unsigned char *dst, size_t dst_cap)
+{
+    static const unsigned char table[256] = {
+        ['A']=0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,
+        ['a']=26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,
+        ['0']=52,53,54,55,56,57,58,59,60,61, ['+']=62, ['/']=63
+    };
+    size_t out = 0;
+    unsigned int buf = 0;
+    int bits = 0;
+    size_t i;
+    for (i = 0; i < src_len && out < dst_cap; ++i) {
+        unsigned char c = (unsigned char)src[i];
+        if (c == '=' || c == '\0') break;
+        if (isspace(c)) continue;
+        if (!isalnum(c) && c != '+' && c != '/') break;
+        buf = (buf << 6) | table[c];
+        bits += 6;
+        if (bits >= 8) {
+            bits -= 8;
+            dst[out++] = (unsigned char)(buf >> bits);
+        }
+    }
+    return out;
+}
+
+static int read_plain_file(const char *path, char **data, size_t *size)
+{
+    struct stat st;
+    *data = NULL;
+    *size = 0;
+    if (stat(path, &st) != 0 || st.st_size <= 0
+        || (size_t)st.st_size > BS_COVER_LIMIT)
+        return 0;
+    FILE *f = fopen(path, "rb");
+    if (!f) return 0;
+    *data = malloc((size_t)st.st_size + 1);
+    if (!*data) { fclose(f); return 0; }
+    *size = fread(*data, 1, (size_t)st.st_size, f);
+    fclose(f);
+    if (*size != (size_t)st.st_size) {
+        free(*data); *data = NULL; *size = 0; return 0;
+    }
+    (*data)[*size] = '\0';
+    return 1;
+}
+
+static int extract_fb2_cover(const char *path, const char *key,
+                             char out[BS_PATH_MAX])
+{
+    if (!file_exists(path) || !safe_cache_key(key))
+        return 0;
+    if (cached_cover(key, out))
+        return 1;
+
+    char *xml = NULL;
+    size_t xml_size = 0;
+    const char *dot = strrchr(path, '.');
+    int is_zip = dot && (!strcasecmp(dot, ".zip") || !strcasecmp(dot, ".gz"));
+
+    if (is_zip) {
+        mz_zip_archive zip;
+        memset(&zip, 0, sizeof(zip));
+        if (!mz_zip_reader_init_file(&zip, path, 0))
+            return 0;
+        int count = (int)mz_zip_reader_get_num_files(&zip);
+        int i;
+        for (i = 0; i < count; ++i) {
+            char name[BS_PATH_MAX];
+            mz_zip_reader_get_filename(&zip, (mz_uint)i, name, sizeof(name));
+            size_t n = strlen(name);
+            if (n >= 4 && !strcasecmp(name + n - 4, ".fb2")) {
+                xml = zip_entry(&zip, name, &xml_size);
+                break;
+            }
+        }
+        mz_zip_reader_end(&zip);
+    } else {
+        read_plain_file(path, &xml, &xml_size);
+    }
+    if (!xml || !xml_size)
+        return 0;
+
+    /* Find <image ... href="#id"/> inside <coverpage> */
+    char cover_id[256] = "";
+    const char *cp = xml;
+    const char *cp_end = NULL;
+    const char *end = xml + xml_size;
+    while (cp < end && (cp = memchr(cp, '<', (size_t)(end - cp))) != NULL) {
+        const char *close = memchr(cp, '>', (size_t)(end - cp));
+        if (!close) break;
+        ++cp;
+        if (local_tag_is(cp, (size_t)(close - cp), "coverpage")) {
+            cp_end = close + 1;
+            break;
+        }
+        cp = close + 1;
+    }
+    if (cp_end) {
+        const char *limit = end;
+        /* Scan forward for </coverpage> to bound the search */
+        const char *s = cp_end;
+        while (s < end && (s = memchr(s, '<', (size_t)(end - s))) != NULL) {
+            if (s + 1 < end && s[1] == '/'
+                && local_tag_is(s + 2,
+                                (size_t)(end - s - 2 > 64 ? 64 : end - s - 2),
+                                "coverpage")) {
+                limit = s;
+                break;
+            }
+            const char *c = memchr(s + 1, '>', (size_t)(end - s - 1));
+            s = c ? c + 1 : end;
+        }
+        s = cp_end;
+        while (s < limit && (s = memchr(s, '<', (size_t)(limit - s))) != NULL) {
+            const char *close = memchr(s, '>', (size_t)(limit - s));
+            if (!close) break;
+            ++s;
+            if (local_tag_is(s, (size_t)(close - s), "image")) {
+                if (!xml_attr(s, (size_t)(close - s), "l:href", cover_id, sizeof(cover_id)))
+                    xml_attr(s, (size_t)(close - s), "xlink:href", cover_id, sizeof(cover_id));
+                break;
+            }
+            s = close + 1;
+        }
+    }
+
+    /* Strip leading '#' */
+    const char *binary_id = cover_id;
+    if (*binary_id == '#') ++binary_id;
+
+    int ok = 0;
+    if (*binary_id) {
+        /* Find <binary id="binary_id" ...>base64</binary> */
+        const char *p = xml;
+        while (p < end && (p = memchr(p, '<', (size_t)(end - p))) != NULL) {
+            const char *close = memchr(p, '>', (size_t)(end - p));
+            if (!close) break;
+            ++p;
+            if (*p == '/' || *p == '!' || *p == '?') { p = close + 1; continue; }
+            if (!local_tag_is(p, (size_t)(close - p), "binary")) {
+                p = close + 1; continue;
+            }
+            char id[256] = "";
+            xml_attr(p, (size_t)(close - p), "id", id, sizeof(id));
+            if (strcmp(id, binary_id) != 0) { p = close + 1; continue; }
+            char content_type[64] = "";
+            xml_attr(p, (size_t)(close - p), "content-type", content_type,
+                     sizeof(content_type));
+            const char *b64_start = close + 1;
+            const char *b64_end = memchr(b64_start, '<', (size_t)(end - b64_start));
+            if (!b64_end) break;
+            size_t b64_len = (size_t)(b64_end - b64_start);
+            size_t max_decoded = b64_len * 3 / 4 + 4;
+            if (max_decoded > BS_COVER_LIMIT) break;
+            unsigned char *image = malloc(max_decoded);
+            if (!image) break;
+            size_t image_size = base64_decode(b64_start, b64_len, image, max_decoded);
+            if (image_size > 0) {
+                mkdir(STATS_DIR, 0755);
+                mkdir(COVER_CACHE_DIR, 0755);
+                const char *ext = ".img";
+                if (strstr(content_type, "jpeg") || strstr(content_type, "jpg"))
+                    ext = ".jpg";
+                else if (strstr(content_type, "png"))
+                    ext = ".png";
+                snprintf(out, BS_PATH_MAX, COVER_CACHE_DIR "/%s%s", key, ext);
+                ok = write_cover(out, image, image_size);
+            }
+            free(image);
+            break;
+        }
+    }
+    free(xml);
+    if (!ok) out[0] = '\0';
+    return ok;
+}
+
 static int remembered_cover_key(sqlite3 *stats, const char *title,
                                 char key[128])
 {
@@ -602,8 +781,17 @@ static void resolve_cover(sqlite3 *explorer, sqlite3 *stats, const char *title,
                     if (!file_exists(fallback))
                         fallback[0] = '\0';
                 }
-                if (extract_epub_cover(path, key, out))
-                    break;
+                const char *ext = strrchr(path, '.');
+                int is_fb2 = ext && !strcasecmp(ext, ".fb2");
+                int is_fb2z = !is_fb2 && path[0]
+                    && (strstr(path, ".fb2.zip") || strstr(path, ".fb2.gz"));
+                if (is_fb2 || is_fb2z) {
+                    if (extract_fb2_cover(path, key, out))
+                        break;
+                } else {
+                    if (extract_epub_cover(path, key, out))
+                        break;
+                }
             }
         }
     }

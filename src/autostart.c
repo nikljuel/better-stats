@@ -16,12 +16,12 @@
 #define HANDLER_DIR "/mnt/ext1/system/bin"
 #define HANDLER_NAME "betterstats-handler.app"
 #define HANDLER_PATH HANDLER_DIR "/" HANDLER_NAME
-#define HANDLER_MARKER "# Better Stats EPUB autostart"
+#define HANDLER_MARKER "# Better Stats autostart"
 #define MAX_CONFIG_SIZE (1024U * 1024U)
 
 static const char handler_script[] =
     "#!/bin/sh\n"
-    "# Better Stats EPUB autostart\n"
+    "# Better Stats autostart\n"
     "self=\"betterstats-handler.app\"\n"
     "app=\"/mnt/ext1/applications/BetterStats.app\"\n"
     "cfg=\"/mnt/ext1/system/config/extensions.cfg\"\n"
@@ -36,8 +36,11 @@ static const char handler_script[] =
     "    return 1\n"
     "}\n"
     "\n"
+    "fmt=epub\n"
+    "case \"$1\" in *.fb2|*.fb2.zip|*.fb2.gz) fmt=fb2 ;; esac\n"
+    "\n"
     "reader=\"\"\n"
-    "apps=$(grep -i \"^epub:\" \"$cfg\" 2>/dev/null | head -n 1 | cut -d: -f4)\n"
+    "apps=$(grep -i \"^$fmt:\" \"$cfg\" 2>/dev/null | head -n 1 | cut -d: -f4)\n"
     "IFS=,\n"
     "for name in $apps; do\n"
     "    [ \"$name\" = \"$self\" ] && continue\n"
@@ -153,40 +156,53 @@ static int write_handler(void)
     return 1;
 }
 
+static const char *formats[] = {"epub", "fb2"};
+#define FORMAT_COUNT (sizeof(formats) / sizeof(formats[0]))
+
 void bs_autostart_get(bs_autostart_status *out)
 {
     char *config = NULL;
     size_t config_size = 0;
     char *handler = NULL;
     size_t handler_size = 0;
-    epub_handler_config_result parsed;
     memset(out, 0, sizeof(*out));
     if (!active_config(&config, &config_size)) {
-        message(out, "EPUB handler configuration is unavailable");
+        message(out, "Handler configuration is unavailable");
         return;
     }
-    patch_epub_handler_config(config, config_size, HANDLER_NAME, 0, &parsed);
+    int any_ok = 0, any_present = 0, any_not_first = 0, any_koreader = 0;
+    size_t i;
+    for (i = 0; i < FORMAT_COUNT; ++i) {
+        handler_config_result parsed;
+        patch_handler_config(config, config_size, formats[i],
+                             HANDLER_NAME, 0, &parsed);
+        if (parsed.ok) {
+            any_ok = 1;
+            if (parsed.handler_present) any_present = 1;
+            if (parsed.handler_present && !parsed.handler_first) any_not_first = 1;
+            if (parsed.koreader_present) any_koreader = 1;
+        }
+        free_handler_config(&parsed);
+    }
     free(config);
-    if (!parsed.ok) {
-        message(out, parsed.error);
-        free_epub_handler_config(&parsed);
+    if (!any_ok) {
+        message(out, "Handler configuration is unavailable");
         return;
     }
     int handler_exists = installed_handler(&handler, &handler_size);
     int owned = handler_exists && contains(handler, handler_size, "# Better Stats");
     int current = handler_exists && contains(handler, handler_size, HANDLER_MARKER);
     free(handler);
-    out->enabled = parsed.handler_first && current;
-    out->available = !parsed.koreader_present && (!handler_exists || owned);
-    if (parsed.koreader_present)
+    out->enabled = any_present && !any_not_first && current;
+    out->available = !any_koreader && (!handler_exists || owned);
+    if (any_koreader)
         message(out, "KOReader association detected");
     else if (handler_exists && !owned)
-        message(out, "EPUB handler path is already in use");
-    else if (parsed.handler_present && !parsed.handler_first)
-        message(out, "Another EPUB reader is registered");
-    else if (parsed.handler_present && !out->enabled)
-        message(out, "Better Stats EPUB handler is missing");
-    free_epub_handler_config(&parsed);
+        message(out, "Handler path is already in use");
+    else if (any_not_first)
+        message(out, "Another reader is registered");
+    else if (any_present && !out->enabled)
+        message(out, "Better Stats handler needs updating");
 }
 
 void bs_autostart_set(int enabled, bs_autostart_status *out)
@@ -195,59 +211,61 @@ void bs_autostart_set(int enabled, bs_autostart_status *out)
     size_t original_size = 0;
     char *handler = NULL;
     size_t handler_size = 0;
-    epub_handler_config_result parsed;
+    handler_config_result results[FORMAT_COUNT];
     memset(out, 0, sizeof(*out));
     if (!active_config(&original, &original_size)) {
-        message(out, "EPUB handler configuration is unavailable");
+        message(out, "Handler configuration is unavailable");
         return;
     }
-    patch_epub_handler_config(original, original_size, HANDLER_NAME, enabled,
-                              &parsed);
-    if (!parsed.ok) {
-        message(out, parsed.error);
-        free(original);
-        free_epub_handler_config(&parsed);
-        return;
+    const char *input = original;
+    size_t input_size = original_size;
+    int any_changed = 0, any_koreader = 0;
+    size_t i;
+    for (i = 0; i < FORMAT_COUNT; ++i) {
+        patch_handler_config(input, input_size, formats[i],
+                             HANDLER_NAME, enabled, &results[i]);
+        if (results[i].ok) {
+            if (results[i].changed) any_changed = 1;
+            if (results[i].koreader_present) any_koreader = 1;
+            input = results[i].output;
+            input_size = results[i].output_size;
+        }
     }
-    if (enabled && parsed.koreader_present) {
+    if (enabled && any_koreader) {
         message(out, "KOReader association detected");
-        free(original);
-        free_epub_handler_config(&parsed);
-        return;
+        goto cleanup;
     }
     int handler_exists = installed_handler(&handler, &handler_size);
     int owned = handler_exists && contains(handler, handler_size, "# Better Stats");
     free(handler);
     if (enabled && handler_exists && !owned) {
-        message(out, "EPUB handler path is already in use");
-        free(original);
-        free_epub_handler_config(&parsed);
-        return;
+        message(out, "Handler path is already in use");
+        goto cleanup;
     }
     if (enabled && !write_handler()) {
-        message(out, "Could not install EPUB handler");
-        free(original);
-        free_epub_handler_config(&parsed);
-        return;
+        message(out, "Could not install handler");
+        goto cleanup;
     }
-    if (parsed.changed) {
+    if (any_changed) {
         if (!exists(EXTENSIONS_BACKUP)
             && !write_file(EXTENSIONS_BACKUP, original, original_size)) {
             message(out, "Could not create extensions.cfg backup");
-            free(original);
-            free_epub_handler_config(&parsed);
-            return;
+            goto cleanup;
         }
-        if (!write_file(USER_EXTENSIONS, parsed.output, parsed.output_size)) {
+        if (!write_file(USER_EXTENSIONS, input, input_size)) {
             message(out, "Could not write extensions.cfg");
-            free(original);
-            free_epub_handler_config(&parsed);
-            return;
+            goto cleanup;
         }
     }
     if (!enabled && owned)
         unlink(HANDLER_PATH);
     free(original);
-    free_epub_handler_config(&parsed);
+    for (i = 0; i < FORMAT_COUNT; ++i)
+        free_handler_config(&results[i]);
     bs_autostart_get(out);
+    return;
+cleanup:
+    free(original);
+    for (i = 0; i < FORMAT_COUNT; ++i)
+        free_handler_config(&results[i]);
 }

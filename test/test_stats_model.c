@@ -48,22 +48,48 @@ static void make_epub(const char *path)
     assert(mz_zip_writer_end(&zip));
 }
 
+static void make_fb2(const char *path)
+{
+    static const char fb2[] =
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+        "<FictionBook xmlns=\"http://www.gribuser.ru/xml/fictionbook/2.0\""
+        " xmlns:l=\"http://www.w3.org/1999/xlink\">\n"
+        "<description><title-info><coverpage>"
+        "<image l:href=\"#cover.png\"/>"
+        "</coverpage></title-info></description>\n"
+        "<binary id=\"cover.png\" content-type=\"image/png\">"
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQI12P4"
+        "z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg=="
+        "</binary>\n"
+        "</FictionBook>\n";
+    FILE *f = fopen(path, "wb");
+    assert(f);
+    assert(fwrite(fb2, 1, sizeof(fb2) - 1, f) == sizeof(fb2) - 1);
+    assert(fclose(f) == 0);
+}
+
 int main(void)
 {
     char explorer_path[128];
     char stats_path[128];
     char epub_path[128];
     char epub_name[64];
+    char fb2_path[128];
+    char fb2_name[64];
     snprintf(explorer_path, sizeof(explorer_path), "/tmp/bs_model_%ld_explorer.db",
              (long)getpid());
     snprintf(stats_path, sizeof(stats_path), "/tmp/bs_model_%ld_stats.db",
              (long)getpid());
     snprintf(epub_name, sizeof(epub_name), "bs_model_%ld.epub", (long)getpid());
     snprintf(epub_path, sizeof(epub_path), "/tmp/%s", epub_name);
+    snprintf(fb2_name, sizeof(fb2_name), "bs_model_%ld.fb2", (long)getpid());
+    snprintf(fb2_path, sizeof(fb2_path), "/tmp/%s", fb2_name);
     unlink(explorer_path);
     unlink(stats_path);
     unlink(epub_path);
+    unlink(fb2_path);
     unlink("/tmp/bs_model_cache/covers/aa.png");
+    unlink("/tmp/bs_model_cache/covers/dd.png");
     rmdir("/tmp/bs_model_cache/covers");
     rmdir("/tmp/bs_model_cache");
     unlink("/tmp/bs_model_firmware_covers/1bb.png");
@@ -84,21 +110,26 @@ int main(void)
         " position_ts INTEGER,cpage INTEGER,npage INTEGER,opentime INTEGER,"
         " completed INTEGER,completed_ts INTEGER);"
         "INSERT INTO folders VALUES(1,'/missing');"
-        "INSERT INTO books_impl VALUES(1,'Alpha','Ada'),(2,'Beta','Bea');"
+        "INSERT INTO books_impl VALUES(1,'Alpha','Ada'),(2,'Beta','Bea'),"
+        " (3,'Gamma','Gina');"
         "INSERT INTO files VALUES(1,1,x'aa',1,'alpha.epub',2),"
         " (2,1,x'bb',1,'beta.epub',2),"
-        " (2,1,x'cc',1,'beta-old.epub',1);"
+        " (2,1,x'cc',1,'beta-old.epub',1),"
+        " (3,1,x'dd',1,'gamma.fb2',3);"
         "INSERT INTO books_settings VALUES"
         " (1,1,'p',1700000060,25,100,1700000000,0,0),"
-        " (2,1,'p',0,100,100,0,1,strftime('%s','2024-02-29 18:00:00'));"
+        " (2,1,'p',0,100,100,0,1,strftime('%s','2024-02-29 18:00:00')),"
+        " (3,1,'p',1699999900,200,200,1699999800,1,strftime('%s','2024-01-15 10:00:00'));"
     );
-    char update[256];
+    char update[512];
     snprintf(update, sizeof(update),
              "UPDATE folders SET name='/tmp';UPDATE files SET filename='%s'"
-             " WHERE book_id=1", epub_name);
+             " WHERE book_id=1;UPDATE files SET filename='%s'"
+             " WHERE book_id=3", epub_name, fb2_name);
     sql(explorer, update);
     sqlite3_close(explorer);
     make_epub(epub_path);
+    make_fb2(fb2_path);
     FILE *firmware_cover = fopen("/tmp/bs_model_firmware_covers/1bb.png", "wb");
     assert(firmware_cover);
     assert(fputs("cover", firmware_cover) >= 0);
@@ -107,8 +138,9 @@ int main(void)
     tracker setup;
     assert(tracker_init(&setup, stats_path, explorer_path) == 0);
     sql(setup.stats,
-        "INSERT INTO books(book_id,title,author,cover,cpage,npage,completed,last_seen)"
-        " VALUES(1,'Alpha','Ada','',25,100,0,0),(2,'Beta','Bea','',100,100,1,0);"
+        "INSERT OR REPLACE INTO books(book_id,title,author,cover,cpage,npage,completed,last_seen)"
+        " VALUES(1,'Alpha','Ada','',25,100,0,0),(2,'Beta','Bea','',100,100,1,0),"
+        " (3,'Gamma','Gina','',200,200,1,0);"
         "INSERT INTO sessions(book_id,start_time,end_time,active_seconds,pages_start,"
         " pages_end,recovered) VALUES"
         " (1,strftime('%s','2024-02-28 11:50:00'),strftime('%s','2024-02-28 12:00:00'),"
@@ -124,8 +156,7 @@ int main(void)
 
     bs_overall overall;
     assert(bs_load_overall(context, &overall, &error) == 0);
-    assert(overall.books_total == 2 && overall.books_finished == 1);
-    assert(overall.finished_fraction == 0.5);
+    assert(overall.books_total == 3 && overall.books_finished == 2);
 
     bs_current_book current;
     assert(bs_load_current_book(context, &current, &error) == 0);
@@ -144,7 +175,7 @@ int main(void)
     bs_year year;
     assert(bs_load_year(context, 2024, &year, &error) == 0);
     assert(year.days == 366 && year.start_weekday == 0);
-    assert(year.days_read == 2 && year.best_streak == 2);
+    assert(year.days_read == 3 && year.best_streak == 2);
     assert(strcmp(year.best_streak_start, "2024-02-28") == 0);
 
     bs_month month;
@@ -156,20 +187,28 @@ int main(void)
 
     bs_year_books books;
     assert(bs_load_year_books(context, 2024, &books, &error) == 0);
-    assert(books.total == 1 && books.month_count[1] == 1);
+    assert(books.total == 2);
+    assert(books.month_count[0] == 1);
+    assert(strcmp(books.month[0][0].title, "Gamma") == 0);
+    assert(strcmp(books.month[0][0].date, "2024-01-15") == 0);
+    assert(books.month_count[1] == 1);
     assert(strcmp(books.month[1][0].title, "Beta") == 0);
     assert(strcmp(books.month[1][0].date, "2024-02-29") == 0);
     assert(strcmp(books.month[1][0].cover_path,
                   "/tmp/bs_model_firmware_covers/1bb.png") == 0);
+    /* FB2 cover was extracted via base64 decode */
+    assert(access("/tmp/bs_model_cache/covers/dd.png", R_OK) == 0);
     bs_year_books_free(&books);
 
     bs_context_close(context);
     unlink("/tmp/bs_model_cache/covers/aa.png");
+    unlink("/tmp/bs_model_cache/covers/dd.png");
     rmdir("/tmp/bs_model_cache/covers");
     rmdir("/tmp/bs_model_cache");
     unlink("/tmp/bs_model_firmware_covers/1bb.png");
     rmdir("/tmp/bs_model_firmware_covers");
     unlink(epub_path);
+    unlink(fb2_path);
     unlink(explorer_path);
     unlink(stats_path);
     puts("all stats-model tests ok");

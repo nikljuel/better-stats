@@ -47,12 +47,12 @@ static int stock_reader(slice app)
     return 1;
 }
 
-static void set_error(epub_handler_config_result *out, const char *message)
+static void set_error(handler_config_result *out, const char *message)
 {
     snprintf(out->error, sizeof(out->error), "%s", message);
 }
 
-void free_epub_handler_config(epub_handler_config_result *result)
+void free_handler_config(handler_config_result *result)
 {
     if (!result)
         return;
@@ -60,9 +60,9 @@ void free_epub_handler_config(epub_handler_config_result *result)
     memset(result, 0, sizeof(*result));
 }
 
-int patch_epub_handler_config(const char *input, size_t input_size,
-                              const char *handler_name, int enable,
-                              epub_handler_config_result *out)
+int patch_handler_config(const char *input, size_t input_size,
+                         const char *format, const char *handler_name,
+                         int enable, handler_config_result *out)
 {
     size_t line_start = 0;
     memset(out, 0, sizeof(*out));
@@ -84,13 +84,15 @@ int patch_epub_handler_config(const char *input, size_t input_size,
         const char *line = input + line_start;
         size_t line_length = content_end - line_start;
         const char *c1 = memchr(line, ':', line_length);
-        if (c1 && (size_t)(c1 - line) == 4 && memcmp(line, "epub", 4) == 0) {
+        size_t fmt_len = strlen(format);
+        if (c1 && (size_t)(c1 - line) == fmt_len
+            && memcmp(line, format, fmt_len) == 0) {
             const char *end = line + line_length;
             const char *c2 = memchr(c1 + 1, ':', (size_t)(end - c1 - 1));
             const char *c3 = c2 ? memchr(c2 + 1, ':', (size_t)(end - c2 - 1)) : NULL;
             const char *c4 = c3 ? memchr(c3 + 1, ':', (size_t)(end - c3 - 1)) : NULL;
             if (!c4) {
-                set_error(out, "Malformed EPUB entry");
+                set_error(out, "Malformed config entry");
                 return -1;
             }
 
@@ -107,7 +109,7 @@ int patch_epub_handler_config(const char *input, size_t input_size,
                 at = comma + 1;
             }
             if (at < c4 && app_count == sizeof(apps) / sizeof(apps[0])) {
-                set_error(out, "Too many EPUB handlers");
+                set_error(out, "Too many handlers");
                 return -1;
             }
 
@@ -124,7 +126,7 @@ int patch_epub_handler_config(const char *input, size_t input_size,
                              (int)apps[i].length, apps[i].start);
             }
             if (enable && !*out->stock_handler) {
-                set_error(out, "No native EPUB reader found");
+                set_error(out, "No native reader found");
                 return -1;
             }
 
@@ -144,7 +146,7 @@ int patch_epub_handler_config(const char *input, size_t input_size,
                 if (joined_size)
                     joined[joined_size++] = ',';
                 if (joined_size + apps[i].length >= sizeof(joined)) {
-                    set_error(out, "EPUB handler entry is too long");
+                    set_error(out, "Handler entry is too long");
                     return -1;
                 }
                 memcpy(joined + joined_size, apps[i].start, apps[i].length);
@@ -175,6 +177,6 @@ int patch_epub_handler_config(const char *input, size_t input_size,
             break;
         line_start = line_end + 1;
     }
-    set_error(out, "No EPUB entry found");
+    set_error(out, "No entry found");
     return -1;
 }
