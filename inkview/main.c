@@ -188,16 +188,16 @@ static void draw_settings_icon(int center_x, int center_y)
 static void draw_donut(int center_x, int center_y, int radius,
                        int thickness, double fraction)
 {
-    int degree;
+    int steps = 720;
     int inner = radius - thickness;
     if (fraction < 0.0)
         fraction = 0.0;
     if (fraction > 1.0)
         fraction = 1.0;
-    for (degree = 0; degree < 360; ++degree) {
-        double angle = (degree - 90) * 3.14159265358979323846 / 180.0;
-        int color = degree < (int)(fraction * 360.0 + 0.5)
-            ? BLACK : 0xd8d8d8;
+    int filled = (int)(fraction * steps + 0.5);
+    for (int i = 0; i < steps; ++i) {
+        double angle = (i * 360.0 / steps - 90) * 3.14159265358979323846 / 180.0;
+        int color = i < filled ? BLACK : 0xd8d8d8;
         DrawLine(center_x + (int)(cos(angle) * inner),
                  center_y + (int)(sin(angle) * inner),
                  center_x + (int)(cos(angle) * radius),
@@ -356,7 +356,11 @@ static void draw_overview(void)
              ALIGN_LEFT | VALIGN_MIDDLE);
     }
 
-    int first_separator = top + cover_h + dp(20);
+    int cover_bottom = top + cover_h;
+    int text_bottom = app.current.ok
+        ? (top + dp(126) + (app.current.left_seconds > 0 ? dp(76) : dp(46)))
+        : top + dp(60);
+    int first_separator = imax(cover_bottom, text_bottom) + dp(20);
     separator(first_separator);
     int metrics_top = first_separator + dp(20);
     int column_w = (app.width - margin * 2) / 3;
