@@ -198,7 +198,7 @@ Item {
                 Repeater {
                     model: [
                         { v: Tr.fmtHM(tab.ov.todaySecs), l: Tr.t("Gelesen heute", "Read today") },
-                        { v: Math.round(tab.ov.avgSessionMin || 0) + "", l: Tr.t("Min pro Session", "Min per session") },
+                        { v: Math.round(tab.ov.avgSessionMin || 0) + "", l: Tr.t("Ø Min/Session", "Avg min/session") },
                         { v: ((tab.ov.pagesPerMin || 0) * 60).toFixed(0), l: Tr.t("Seiten pro Stunde", "Pages per hour") }
                     ]
 
@@ -301,7 +301,7 @@ Item {
                 Repeater {
                     model: [
                         { v: (tab.ov.booksFinished || 0) + "", l: Tr.t("Bücher beendet", "Books finished") },
-                        { v: (tab.ov.totalHours || 0).toFixed(1), l: Tr.t("Stunden gesamt", "Total hours") }
+                        { v: (tab.ov.totalHours || 0).toFixed(1), l: Tr.t("Lesezeit gesamt", "Total reading time") }
                     ]
 
                     Column {

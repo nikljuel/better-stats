@@ -366,7 +366,7 @@ static void draw_overview(void)
                        tr("Gelesen heute", "Read today"));
     snprintf(value, sizeof(value), "%.0f", app.overall.avg_session_min);
     draw_metric_column(margin + column_w, metrics_top, column_w, value,
-                       tr("Min pro Session", "Min per session"));
+                       tr("\xc3\x98 Min/Session", "Avg min/session"));
     snprintf(value, sizeof(value), "%.0f", app.overall.pages_per_min * 60);
     draw_metric_column(margin + column_w * 2, metrics_top, column_w, value,
                        tr("Seiten pro Stunde", "Pages per hour"));
@@ -399,7 +399,7 @@ static void draw_overview(void)
                        tr("Bücher beendet", "Books finished"));
     snprintf(value, sizeof(value), "%.1f", app.overall.total_hours);
     draw_metric_column(margin + column_w * 2, number_y, column_w, value,
-                       tr("Stunden gesamt", "Total hours"));
+                       tr("Lesezeit gesamt", "Total reading time"));
 }
 
 static void streak_insight(char out[256])
