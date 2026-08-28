@@ -26,7 +26,8 @@ typedef struct {
     bs_context *context;
     bs_error error;
     bs_overall overall;
-    bs_current_book current;
+    bs_reading_list reading;
+    int book_idx;
     bs_year year;
     bs_month month;
     bs_year_books year_books;
@@ -46,6 +47,8 @@ typedef struct {
     int tab;
     int current_year;
     int current_month;
+    int real_year;
+    int real_month;
     int calendar_year;
     int calendar_month;
     int german;
@@ -154,6 +157,19 @@ static void fill_circle(int center_x, int center_y, int radius, int color)
         while (x > 0 && x * x + y * y > radius_squared)
             --x;
         FillArea(center_x - x, center_y + y, x * 2 + 1, 1, color);
+    }
+}
+
+static void draw_circle(int center_x, int center_y, int radius, int color)
+{
+    int steps = 72;
+    double step = 2 * 3.14159265358979323846 / steps;
+    for (int i = 0; i < steps; ++i) {
+        double a = i * step;
+        DrawLine(center_x + (int)(cos(a) * radius),
+                 center_y + (int)(sin(a) * radius),
+                 center_x + (int)(cos(a + step) * radius),
+                 center_y + (int)(sin(a + step) * radius), color);
     }
 }
 
@@ -308,43 +324,58 @@ static void draw_overview(void)
 {
     int margin = dp(28);
     int top = content_top() + dp(32);
+    int multi = app.reading.count > 1;
+    int arrow_w = multi ? dp(30) : 0;
+    int book_x = margin + arrow_w;
+    int book_w = app.width - margin * 2 - arrow_w * 2;
     int cover_w = dp(110);
     int cover_h = dp(165);
-    int info_x = margin + cover_w + dp(20);
-    int info_w = app.width - info_x - margin;
+    int info_x = book_x + cover_w + dp(20);
+    int info_w = book_w - cover_w - dp(20);
+    bs_current_book *cur = app.reading.count > 0
+        ? &app.reading.books[app.book_idx] : NULL;
 
-    if (app.current.ok) {
-        draw_cover(app.current.cover_path, app.current.title,
-                   margin, top, cover_w, cover_h);
+    if (multi) {
         set_font(app.heading, BLACK);
-        text(info_x, top, info_w, dp(48), app.current.title,
+        if (app.book_idx > 0)
+            DrawSymbol(margin, top + cover_h / 2 - dp(9), ARROW_LEFT);
+        if (app.book_idx < (int)app.reading.count - 1)
+            DrawSymbol(app.width - margin - dp(18), top + cover_h / 2 - dp(9),
+                       ARROW_RIGHT);
+    }
+
+    if (cur && cur->ok) {
+        draw_cover(cur->cover_path, cur->title,
+                   book_x, top, cover_w, cover_h);
+        set_font(app.heading, BLACK);
+        text(info_x, top, info_w, dp(48), cur->title,
              ALIGN_LEFT | VALIGN_TOP | DOTS);
         set_font(app.small, 0x888888);
-        text(info_x, top + dp(48), info_w, dp(34), app.current.author,
+        text(info_x, top + dp(48), info_w, dp(34), cur->author,
              ALIGN_LEFT | VALIGN_TOP | DOTS);
 
         char value[64];
         snprintf(value, sizeof(value), "%s: %d %%",
-                 tr("Fortschritt", "Progress"), app.current.percent);
+                 tr("Fortschritt", "Progress"), cur->percent);
         set_font(app.body, BLACK);
         text(info_x, top + dp(86), info_w, dp(34), value,
              ALIGN_LEFT | VALIGN_MIDDLE);
         int bar_y = top + dp(126);
         int bar_h = dp(10);
         fill_round_rect(info_x, bar_y, info_w, bar_h, bar_h / 2, 0xeeeeee);
-        int progress_w = info_w * app.current.percent / 100;
+        int progress_w = info_w * cur->percent / 100;
         if (progress_w > 0)
             fill_round_rect(info_x, bar_y, progress_w, bar_h,
                             imin(bar_h / 2, progress_w / 2), BLACK);
 
         char formatted[32];
-        format_time(app.current.book_seconds, formatted);
+        format_time(cur->book_seconds, formatted);
         snprintf(value, sizeof(value), "%s: %s", tr("Gelesen", "Read"), formatted);
         set_font(app.small, 0x888888);
         text(info_x, bar_y + dp(18), info_w, dp(28), value,
              ALIGN_LEFT | VALIGN_MIDDLE | DOTS);
-        if (app.current.left_seconds > 0) {
-            format_time(app.current.left_seconds, formatted);
+        if (cur->left_seconds > 0) {
+            format_time(cur->left_seconds, formatted);
             snprintf(value, sizeof(value), "%s %s", tr("Noch ca.", "About"), formatted);
             text(info_x, bar_y + dp(48), info_w, dp(28), value,
                  ALIGN_LEFT | VALIGN_MIDDLE | DOTS);
@@ -357,10 +388,29 @@ static void draw_overview(void)
     }
 
     int cover_bottom = top + cover_h;
-    int text_bottom = app.current.ok
-        ? (top + dp(126) + (app.current.left_seconds > 0 ? dp(76) : dp(46)))
+    int text_bottom = (cur && cur->ok)
+        ? (top + dp(126) + (cur->left_seconds > 0 ? dp(76) : dp(46)))
         : top + dp(60);
-    int first_separator = imax(cover_bottom, text_bottom) + dp(20);
+    int section_bottom = imax(cover_bottom, text_bottom);
+
+    if (multi) {
+        int dots_y = section_bottom + dp(8);
+        int dot_r = dp(4);
+        int dot_gap = dp(8);
+        int dots_w = (int)app.reading.count * (dot_r * 2 + dot_gap) - dot_gap;
+        int dots_x = app.width / 2 - dots_w / 2;
+        for (int i = 0; i < (int)app.reading.count; ++i) {
+            int cx = dots_x + i * (dot_r * 2 + dot_gap) + dot_r;
+            int cy = dots_y + dot_r;
+            if (i == app.book_idx)
+                fill_circle(cx, cy, dot_r, BLACK);
+            else
+                draw_circle(cx, cy, dot_r, BLACK);
+        }
+        section_bottom = dots_y + dot_r * 2;
+    }
+
+    int first_separator = section_bottom + dp(20);
     separator(first_separator);
     int metrics_top = first_separator + dp(20);
     int column_w = (app.width - margin * 2) / 3;
@@ -601,14 +651,24 @@ static void draw_year(void)
     int margin = dp(28);
     int top = content_top() + dp(10);
     int month_count = app.current_month;
+    int arrow_w = dp(30);
     char value[96];
+
+    if (app.current_year > 2015)
+        DrawSymbol(margin, top + dp(54) / 2 - dp(9), ARROW_LEFT);
+    if (app.current_year < app.real_year)
+        DrawSymbol(app.width - margin - dp(18), top + dp(54) / 2 - dp(9),
+                   ARROW_RIGHT);
+
+    int header_x = margin + arrow_w;
+    int header_w = app.width - margin * 2 - arrow_w * 2;
     snprintf(value, sizeof(value), "%d", app.year_books.total);
     set_font(app.large, BLACK);
-    text(margin, top, dp(58), dp(54), value, ALIGN_LEFT | VALIGN_MIDDLE);
+    text(header_x, top, dp(58), dp(54), value, ALIGN_LEFT | VALIGN_MIDDLE);
     snprintf(value, sizeof(value), "%s %d",
              tr("Bücher beendet in", "Books finished in"), app.current_year);
     set_font(app.body, 0x888888);
-    text(margin + dp(36), top, app.width - margin * 2 - dp(36), dp(54), value,
+    text(header_x + dp(36), top, header_w - dp(36), dp(54), value,
          ALIGN_LEFT | VALIGN_MIDDLE | DOTS);
     separator(top + dp(60));
 
@@ -797,15 +857,20 @@ static int load_tab(void)
     if (app.loaded_tab == app.tab)
         return app.error.code == 0;
     memset(&app.error, 0, sizeof(app.error));
+    if (app.loaded_tab == TAB_OVERVIEW)
+        bs_reading_list_free(&app.reading);
     if (app.loaded_tab == TAB_CALENDAR)
         bs_month_free(&app.month);
     if (app.loaded_tab == TAB_YEAR)
         bs_year_books_free(&app.year_books);
     app.loaded_tab = app.tab;
     int ok;
-    if (app.tab == TAB_OVERVIEW)
+    if (app.tab == TAB_OVERVIEW) {
         ok = bs_load_overall(app.context, &app.overall, &app.error) == 0
-            && bs_load_current_book(app.context, &app.current, &app.error) == 0;
+            && bs_load_reading_books(app.context, &app.reading, &app.error) == 0;
+        if (app.book_idx >= (int)app.reading.count)
+            app.book_idx = imax(0, (int)app.reading.count - 1);
+    }
     else if (app.tab == TAB_STREAK)
         ok = bs_load_year(app.context, app.current_year, &app.year, &app.error) == 0;
     else if (app.tab == TAB_CALENDAR)
@@ -851,6 +916,21 @@ static void shift_month(int delta)
     } else if (app.calendar_month > 12) {
         app.calendar_month = 1;
         ++app.calendar_year;
+    }
+    app.dialog = DIALOG_NONE;
+    draw();
+}
+
+static void shift_year(int delta)
+{
+    int y = app.current_year + delta;
+    if (y < 2015 || y > app.real_year)
+        return;
+    app.current_year = y;
+    app.current_month = (y == app.real_year) ? app.real_month : 12;
+    if (app.loaded_tab == TAB_YEAR) {
+        bs_year_books_free(&app.year_books);
+        app.loaded_tab = -1;
     }
     app.dialog = DIALOG_NONE;
     draw();
@@ -1067,10 +1147,31 @@ static void pointer_up(int x, int y)
             show_day(cell - app.month.first_weekday + 1);
         }
     } else if (app.tab == TAB_YEAR && app.error.code == 0) {
+        if (y >= content_top() && y < content_top() + dp(70)) {
+            if (x < app.width / 3)
+                shift_year(-1);
+            else if (x >= app.width * 2 / 3)
+                shift_year(1);
+            return;
+        }
         int rows_top = content_top() + dp(80);
         int row_h = (app.content_height - rows_top - dp(14)) / app.current_month;
         if (y >= rows_top)
             show_month((y - rows_top) / row_h + 1);
+    } else if (app.tab == TAB_OVERVIEW && app.error.code == 0
+               && app.reading.count > 1) {
+        int top = content_top() + dp(32);
+        int cover_h = dp(165);
+        if (y >= top && y < top + cover_h) {
+            if (x < app.width / 3 && app.book_idx > 0) {
+                --app.book_idx;
+                draw();
+            } else if (x >= app.width * 2 / 3
+                       && app.book_idx < (int)app.reading.count - 1) {
+                ++app.book_idx;
+                draw();
+            }
+        }
     }
 }
 
@@ -1107,6 +1208,8 @@ static int handler(int type, int par1, int par2)
         localtime_r(&now, &local);
         app.current_year = local.tm_year + 1900;
         app.current_month = local.tm_mon + 1;
+        app.real_year = app.current_year;
+        app.real_month = app.current_month;
         app.calendar_year = app.current_year;
         app.calendar_month = app.current_month;
         app.loaded_tab = -1;
@@ -1152,6 +1255,16 @@ static int handler(int type, int par1, int par2)
             shift_month(1);
             return 1;
         }
+        if (app.tab == TAB_YEAR
+            && (par1 == IV_KEY_PREV || par1 == IV_KEY_PREV2)) {
+            shift_year(-1);
+            return 1;
+        }
+        if (app.tab == TAB_YEAR
+            && (par1 == IV_KEY_NEXT || par1 == IV_KEY_NEXT2)) {
+            shift_year(1);
+            return 1;
+        }
         if (par1 == IV_KEY_LEFT || par1 == IV_KEY_PREV || par1 == IV_KEY_PREV2) {
             app.tab = (app.tab + TAB_COUNT - 1) % TAB_COUNT;
             app.dialog = DIALOG_NONE;
@@ -1168,6 +1281,7 @@ static int handler(int type, int par1, int par2)
     if (type == EVT_EXIT) {
         free(cached_cover.bitmap);
         memset(&cached_cover, 0, sizeof(cached_cover));
+        bs_reading_list_free(&app.reading);
         bs_month_free(&app.month);
         bs_year_books_free(&app.year_books);
         bs_context_close(app.context);
