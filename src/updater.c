@@ -284,6 +284,24 @@ static int copy_column(char *out, size_t size, sqlite3_stmt *statement, int colu
     return 1;
 }
 
+static int copy_digest(char out[65], sqlite3_stmt *statement, int column)
+{
+    const char *value = (const char *)sqlite3_column_text(statement, column);
+    if (!value) {
+        out[0] = '\0';
+        return sqlite3_column_type(statement, column) == SQLITE_NULL;
+    }
+    if (strncmp(value, "sha256:", 7) != 0 || strlen(value + 7) != 64)
+        return 0;
+    for (int i = 0; i < 64; ++i) {
+        if (!isxdigit((unsigned char)value[i + 7]))
+            return 0;
+        out[i] = (char)tolower((unsigned char)value[i + 7]);
+    }
+    out[64] = '\0';
+    return 1;
+}
+
 
 int bs_update_parse_release(const char *json, bs_update_info *info)
 {
@@ -317,7 +335,8 @@ int bs_update_parse_release(const char *json, bs_update_info *info)
              info->latest_version);
     const char *asset_sql =
         "SELECT json_extract(value,'$.browser_download_url'),"
-        " CAST(json_extract(value,'$.size') AS INTEGER)"
+        " CAST(json_extract(value,'$.size') AS INTEGER),"
+        " json_extract(value,'$.digest')"
         " FROM json_each(?1,'$.assets')"
         " WHERE json_extract(value,'$.name')=?2 LIMIT 1";
     if (ok)
@@ -328,7 +347,8 @@ int bs_update_parse_release(const char *json, bs_update_info *info)
         ok = sqlite3_step(statement) == SQLITE_ROW
             && copy_column(info->asset_url, sizeof(info->asset_url), statement, 0);
         info->asset_size = ok ? sqlite3_column_int64(statement, 1) : 0;
-        ok = ok && info->asset_size > 0;
+        ok = ok && info->asset_size > 0
+            && copy_digest(info->digest, statement, 2);
     }
     char expected_url[512];
     snprintf(expected_url, sizeof(expected_url),
@@ -506,10 +526,22 @@ int bs_update_install(bs_update_info *info)
                     "ZIP size mismatch: %lld vs %lld",
                     (long long)zip_stat.st_size, info->asset_size);
     }
-    if (!sha256_file(zip_path, info->digest)) {
-        unlink(zip_path);
-        return fail(info, BS_UPDATE_ERR_CORRUPT,
-                    "SHA-256 of downloaded ZIP could not be computed");
+    if (*info->digest) {
+        char actual[65];
+        if (!sha256_file(zip_path, actual)) {
+            unlink(zip_path);
+            return fail(info, BS_UPDATE_ERR_CORRUPT,
+                        "SHA-256 of downloaded ZIP could not be computed");
+        }
+        if (strcmp(actual, info->digest) != 0) {
+            update_log("SHA-256 mismatch: got %s, expected %s",
+                       actual, info->digest);
+            unlink(zip_path);
+            return fail(info, BS_UPDATE_ERR_CORRUPT,
+                        "Downloaded ZIP does not match its GitHub SHA-256");
+        }
+    } else {
+        update_log("GitHub SHA-256 unavailable; using bundled SHA256SUMS");
     }
 
     char base[1024], releases[1024], final[1024], stage[1024];
@@ -554,18 +586,21 @@ int bs_update_install(bs_update_info *info)
         mz_zip_reader_end(&archive);
     unlink(zip_path);
 
-    for (int i = 0; ok && i < 3; ++i) {
+    const char *bundle_error = ok ? NULL : "Release archive is incomplete";
+    for (int i = 0; !bundle_error && i < 3; ++i) {
         path_join(destination, sizeof(destination), stage, release_files[i]);
-        ok = looks_like_elf(destination);
+        if (!looks_like_elf(destination))
+            bundle_error = "Release executable is missing or invalid";
     }
-    ok = ok && manifest_matches(stage, info->latest_version)
-        && run_checksum(stage);
-    if (!ok) {
+    if (!bundle_error && !manifest_matches(stage, info->latest_version))
+        bundle_error = "Release manifest does not match its version";
+    if (!bundle_error && !run_checksum(stage))
+        bundle_error = "Release SHA256SUMS validation failed";
+    if (bundle_error) {
         remove_release(stage);
         unlink(launcher_new);
         unlink(activator_new);
-        return fail(info, BS_UPDATE_ERR_CORRUPT,
-                    "Release bundle is incomplete or damaged");
+        return fail(info, BS_UPDATE_ERR_CORRUPT, "%s", bundle_error);
     }
 
     if (access(final, F_OK) == 0) {

@@ -76,8 +76,9 @@ applications/betterstats/releases/<version>/
 ```
 
 The on-device updater reads the latest stable GitHub release and expects an
-asset named exactly `BetterStats-<tag>.zip`. It verifies the asset size and
-GitHub SHA-256 digest, stages the entire new release directory, then runs
+asset named exactly `BetterStats-<tag>.zip`. It verifies the asset size and,
+when available, its GitHub SHA-256 digest, stages the entire new release
+directory, validates the bundled `SHA256SUMS`, then runs
 `activate-release <version>`. The helper validates the release name, manifest,
 all three executables and `SHA256SUMS`, then atomically renames a temporary
 `current` file. The previous release remains available if validation fails or

@@ -84,6 +84,7 @@ int main(void)
     assert(bs_update_version_compare("v1.2.3", "v1.2.4") < 0);
     assert(bs_update_version_compare("v2.0.0", "v1.99.99") > 0);
     assert(bs_update_version_compare("v1.2.3", "v1.2.3") == 0);
+    assert(bs_update_version_compare("v1.2.8-era-test", "v1.2.8") < 0);
 
     char json[2048];
     snprintf(json, sizeof(json),
@@ -91,11 +92,33 @@ int main(void)
         "\"assets\":[{\"name\":\"BetterStats-v1.1.0.zip\","
         "\"browser_download_url\":\"https://github.com/nikljuel/better-stats/"
         "releases/download/v1.1.0/BetterStats-v1.1.0.zip\","
-        "\"size\":123}]}");
+        "\"size\":123,\"digest\":\"sha256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+        "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"}]}");
     bs_update_info info = {0};
     assert(bs_update_parse_release(json, &info) == 0);
     assert(strcmp(info.latest_version, "v1.1.0") == 0);
     assert(info.asset_size == 123);
+    assert(strcmp(info.digest,
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa") == 0);
+
+    snprintf(json, sizeof(json),
+        "{\"tag_name\":\"v1.1.0\",\"draft\":false,\"prerelease\":false,"
+        "\"assets\":[{\"name\":\"BetterStats-v1.1.0.zip\","
+        "\"browser_download_url\":\"https://github.com/nikljuel/better-stats/"
+        "releases/download/v1.1.0/BetterStats-v1.1.0.zip\","
+        "\"size\":123,\"digest\":null}]}");
+    memset(&info, 0, sizeof(info));
+    assert(bs_update_parse_release(json, &info) == 0);
+    assert(info.digest[0] == '\0');
+
+    snprintf(json, sizeof(json),
+        "{\"tag_name\":\"v1.1.0\",\"draft\":false,\"prerelease\":false,"
+        "\"assets\":[{\"name\":\"BetterStats-v1.1.0.zip\","
+        "\"browser_download_url\":\"https://github.com/nikljuel/better-stats/"
+        "releases/download/v1.1.0/BetterStats-v1.1.0.zip\","
+        "\"size\":123,\"digest\":\"md5:bad\"}]}");
+    memset(&info, 0, sizeof(info));
+    assert(bs_update_parse_release(json, &info) == BS_UPDATE_ERR_ASSET);
 
     memset(&info, 0, sizeof(info));
     assert(bs_update_parse_release("{\"tag_name\":\"v1.1.0\",\"assets\":[]}",

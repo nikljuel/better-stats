@@ -88,8 +88,9 @@ This USB install is only required once. Later stable releases can be installed
 from **Settings → Check now**. Automatic update checks are on by default; at app
 launch they silently connect to a configured Wi-Fi network and ask before
 installing a new release. Choosing **Later** stores nothing, so the next launch
-checks again for the newest release. Confirmed updates are validated with their
-GitHub SHA-256 digest, activated atomically and restart Better Stats. PocketBook
+checks again for the newest release. Confirmed updates use the GitHub SHA-256
+digest when available and always validate the bundled checksums before atomic
+activation and restarting Better Stats. PocketBook
 controls when Wi-Fi disconnects again. Switching automatic checks off does not
 disable the manual Wi-Fi update button; a manual check can show the connection
 dialog when needed.
