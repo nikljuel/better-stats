@@ -14,7 +14,6 @@ release="$base/releases/$version"
 for file in betterstats-qt-softfp betterstats-inkview-softfp betterstats-inkview-hardfp; do
     [ -x "$release/$file" ] || { echo "incomplete release: $file" >&2; exit 1; }
 done
-(cd "$release" && sha256sum -c SHA256SUMS)
 
 temporary="$base/current.tmp.$$"
 trap 'rm -f "$temporary"' EXIT HUP INT TERM

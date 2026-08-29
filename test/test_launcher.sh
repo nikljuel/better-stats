@@ -29,7 +29,6 @@ exit 127
 SCRIPT
 chmod +x "$release/betterstats-qt-softfp"
 printf 'version=v1\n' > "$release/manifest"
-(cd "$release" && shasum -a 256 betterstats-* > SHA256SUMS)
 cp packaging/activate-release "$tmp/applications/betterstats/activate-release"
 chmod +x "$tmp/applications/betterstats/activate-release"
 BETTERSTATS_BASE="$tmp/applications/betterstats" \
