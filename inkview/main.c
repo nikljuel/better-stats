@@ -13,6 +13,7 @@
 #include <time.h>
 
 #pragma weak DrawApplicationCaption
+#pragma weak DrawPanel
 #pragma weak GetCaptionHeight
 #pragma weak InitPanel
 #pragma weak LoadPNG8
@@ -224,6 +225,23 @@ static void draw_settings_icon(int center_x, int center_y)
                  w, bar_h, BLACK);
 }
 
+static void draw_home_icon(int center_x, int center_y)
+{
+    int size = dp(24);
+    int roof_h = dp(10);
+    int top = center_y - size / 2;
+    int i;
+    for (i = 0; i < roof_h; ++i) {
+        int half = (i + 1) * size / (roof_h * 2);
+        FillArea(center_x - half, top + i, half * 2, 1, BLACK);
+    }
+    int body_y = top + roof_h;
+    FillArea(center_x - size / 2 + dp(3), body_y,
+             size - dp(6), size - roof_h, BLACK);
+    FillArea(center_x - dp(3), center_y + dp(4),
+             dp(6), dp(8), WHITE);
+}
+
 static void draw_donut(int center_x, int center_y, int radius,
                        int thickness, double fraction)
 {
@@ -303,13 +321,15 @@ static void draw_header(void)
     int caption = app.caption_height;
     int tab_top = caption;
     if (DrawApplicationCaption) {
-        irect title = {dp(56), 0, app.width - dp(112), caption, 0};
+        irect title = {dp(56), 0, app.width - dp(112), caption,
+                       ALIGN_CENTER | VALIGN_MIDDLE | DOTS};
         DrawApplicationCaption("Better Stats", &title);
     } else {
         set_font(app.heading, BLACK);
         text(0, 0, app.width, caption, "Better Stats",
              ALIGN_CENTER | VALIGN_MIDDLE | DOTS);
     }
+    draw_home_icon(dp(28), caption / 2);
     set_font(app.body, BLACK);
     draw_settings_icon(app.width - dp(28), caption / 2);
     DrawLine(0, caption - 1, app.width, caption - 1, LGRAY);
@@ -1038,6 +1058,8 @@ static void draw(void)
         draw_release_dialog();
     else if (app.dialog != DIALOG_NONE)
         draw_detail_dialog();
+    if (DrawPanel)
+        DrawPanel(NULL, "", "", -1);
     FullUpdate();
 }
 
@@ -1311,8 +1333,11 @@ static void pointer_up(int x, int y)
         }
         return;
     }
-    if (y < app.caption_height && x > app.width - dp(70)) {
-        show_settings();
+    if (y < app.caption_height) {
+        if (x < dp(70))
+            CloseApp();
+        else if (x > app.width - dp(70))
+            show_settings();
         return;
     }
     if (y >= app.caption_height && y < content_top()) {
