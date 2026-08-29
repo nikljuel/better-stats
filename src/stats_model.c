@@ -820,6 +820,65 @@ static void finished_free(finished_list *list)
     memset(list, 0, sizeof(*list));
 }
 
+static int finished_add(finished_list *list, bs_date day, const char *title,
+                        int has_file)
+{
+    char words[BS_TITLE_MAX];
+    normalize_title(title, words);
+    size_t i;
+    for (i = 0; i < list->count; ++i)
+        if (same_book(list->items[i].words, words))
+            break;
+    if (i == list->count) {
+        finished_book *grown = realloc(list->items,
+            (list->count + 1) * sizeof(*list->items));
+        if (!grown)
+            return -1;
+        list->items = grown;
+        memset(&list->items[list->count], 0, sizeof(*list->items));
+        list->items[list->count].day = day;
+        snprintf(list->items[list->count].title, BS_TITLE_MAX, "%s", title);
+        snprintf(list->items[list->count].words, BS_TITLE_MAX, "%s", words);
+        list->items[list->count].has_file = has_file;
+        ++list->count;
+        return 0;
+    }
+
+    finished_book *book = &list->items[i];
+    int new_day = day.year * 10000 + day.month * 100 + day.day;
+    int old_day = book->day.year * 10000 + book->day.month * 100 + book->day.day;
+    if (new_day < old_day)
+        book->day = day;
+    if (has_file && !book->has_file) {
+        snprintf(book->title, BS_TITLE_MAX, "%s", title);
+        snprintf(book->words, BS_TITLE_MAX, "%s", words);
+        book->has_file = 1;
+    }
+    return 0;
+}
+
+static int finished_collect(sqlite3_stmt *statement, finished_list *out)
+{
+    while (sqlite3_step(statement) == SQLITE_ROW) {
+        bs_date day;
+        const char *date = (const char *)sqlite3_column_text(statement, 0);
+        const char *title = (const char *)sqlite3_column_text(statement, 1);
+        if (parse_date(date, &day)
+            && finished_add(out, day, title, sqlite3_column_int(statement, 2)) != 0)
+            return -1;
+    }
+    return 0;
+}
+
+static int finished_compare(const void *a, const void *b)
+{
+    const finished_book *left = a;
+    const finished_book *right = b;
+    int l = left->day.year * 10000 + left->day.month * 100 + left->day.day;
+    int r = right->day.year * 10000 + right->day.month * 100 + right->day.day;
+    return (l > r) - (l < r);
+}
+
 static int finished_books(bs_context *context, int with_covers,
                           finished_list *out, bs_error *error)
 {
@@ -839,42 +898,34 @@ static int finished_books(bs_context *context, int with_covers,
         return -1;
     }
 
-    while (sqlite3_step(statement) == SQLITE_ROW) {
-        bs_date date;
-        const char *date_text = (const char *)sqlite3_column_text(statement, 0);
-        const char *title = (const char *)sqlite3_column_text(statement, 1);
-        int has_file = sqlite3_column_int(statement, 2) != 0;
-        if (!parse_date(date_text, &date))
-            continue;
-        char words[BS_TITLE_MAX];
-        normalize_title(title, words);
-        size_t i;
-        for (i = 0; i < out->count; ++i)
-            if (same_book(out->items[i].words, words))
-                break;
-        if (i == out->count) {
-            finished_book *grown = realloc(out->items,
-                (out->count + 1) * sizeof(*out->items));
-            if (!grown) {
-                sqlite3_finalize(statement);
-                sqlite3_close(db);
-                finished_free(out);
-                return fail(error, 4, "Out of memory");
-            }
-            out->items = grown;
-            memset(&out->items[out->count], 0, sizeof(*out->items));
-            out->items[out->count].day = date;
-            snprintf(out->items[out->count].title, BS_TITLE_MAX, "%s", title);
-            snprintf(out->items[out->count].words, BS_TITLE_MAX, "%s", words);
-            out->items[out->count].has_file = has_file;
-            ++out->count;
-        } else if (has_file && !out->items[i].has_file) {
-            snprintf(out->items[i].title, BS_TITLE_MAX, "%s", title);
-            snprintf(out->items[i].words, BS_TITLE_MAX, "%s", words);
-            out->items[i].has_file = 1;
-        }
+    if (finished_collect(statement, out) != 0) {
+        sqlite3_finalize(statement);
+        sqlite3_close(db);
+        finished_free(out);
+        return fail(error, 4, "Out of memory");
     }
     sqlite3_finalize(statement);
+
+    const char *saved_sql =
+        "SELECT date(completed_ts,'unixepoch','localtime'),IFNULL(title,'?'),0"
+        " FROM books WHERE completed=1 AND completed_ts>0 ORDER BY completed_ts";
+    if (sqlite3_prepare_v2(context->stats, saved_sql, -1, &statement, NULL)
+        != SQLITE_OK) {
+        sqlite3_close(db);
+        finished_free(out);
+        return sql_fail(error, context->stats,
+                        "Could not load saved finished books");
+    }
+    if (finished_collect(statement, out) != 0) {
+        sqlite3_finalize(statement);
+        sqlite3_close(db);
+        finished_free(out);
+        return fail(error, 4, "Out of memory");
+    }
+    sqlite3_finalize(statement);
+    if (out->count > 1)
+        qsort(out->items, out->count, sizeof(*out->items), finished_compare);
+
     if (with_covers) {
         size_t i;
         for (i = 0; i < out->count; ++i)

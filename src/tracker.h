@@ -34,6 +34,7 @@ typedef struct {
     int64_t opentime;    /* session start (last open) */
     int64_t position_ts; /* last position update */
     int cpage, npage, completed;
+    int64_t completed_ts;
     char title[256];
     char author[256];
     char cover[128];     /* "<storageid><hex-fast_hash>" or "" */

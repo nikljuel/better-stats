@@ -19,6 +19,7 @@ static const char *SCHEMA =
     "  book_id INTEGER PRIMARY KEY,"
     "  title TEXT, author TEXT, cover TEXT,"
     "  cpage INTEGER, npage INTEGER, completed INTEGER,"
+    "  completed_ts INTEGER NOT NULL DEFAULT 0,"
     "  last_seen INTEGER);";
 
 /* Retrofits rows written by older versions: recovered spans were capped far
@@ -41,6 +42,21 @@ static int exec1(sqlite3 *db, const char *sql)
     return 0;
 }
 
+static int migrate_completed_ts(sqlite3 *db)
+{
+    sqlite3_stmt *st = NULL;
+    int found = 0;
+    if (sqlite3_prepare_v2(db, "PRAGMA table_info(books)", -1, &st, NULL)
+        != SQLITE_OK)
+        return -1;
+    while (sqlite3_step(st) == SQLITE_ROW)
+        if (!strcmp((const char *)sqlite3_column_text(st, 1), "completed_ts"))
+            found = 1;
+    sqlite3_finalize(st);
+    return found ? 0 : exec1(db,
+        "ALTER TABLE books ADD COLUMN completed_ts INTEGER NOT NULL DEFAULT 0");
+}
+
 int tracker_init(tracker *t, const char *stats_path, const char *explorer_path)
 {
     memset(t, 0, sizeof(*t));
@@ -50,7 +66,12 @@ int tracker_init(tracker *t, const char *stats_path, const char *explorer_path)
         return -1;
     }
     sqlite3_busy_timeout(t->stats, 2000);
-    if (exec1(t->stats, SCHEMA) != 0 || exec1(t->stats, MIGRATE) != 0) {
+    if (exec1(t->stats, "BEGIN IMMEDIATE") != 0
+        || exec1(t->stats, SCHEMA) != 0
+        || migrate_completed_ts(t->stats) != 0
+        || exec1(t->stats, MIGRATE) != 0
+        || exec1(t->stats, "COMMIT") != 0) {
+        sqlite3_exec(t->stats, "ROLLBACK", NULL, NULL, NULL);
         tracker_close(t);
         return -1;
     }
@@ -80,6 +101,7 @@ static sqlite3 *open_explorer(const char *path)
 static const char *STATE_SQL =
     "SELECT s.bookid, s.opentime, s.position_ts,"
     "  IFNULL(s.cpage,0), IFNULL(s.npage,0), IFNULL(s.completed,0),"
+    "  IFNULL(s.completed_ts,0),"
     "  IFNULL(b.title,''), IFNULL(b.author,''),"
     "  IFNULL((SELECT f.storageid || lower(hex(f.fast_hash)) FROM files f"
     "          WHERE f.book_id = s.bookid ORDER BY f.storageid LIMIT 1), '')"
@@ -103,9 +125,10 @@ static void fill_state(sqlite3_stmt *st, pb_state *out)
     out->cpage = sqlite3_column_int(st, 3);
     out->npage = sqlite3_column_int(st, 4);
     out->completed = sqlite3_column_int(st, 5);
-    snprintf(out->title, sizeof(out->title), "%s", sqlite3_column_text(st, 6));
-    snprintf(out->author, sizeof(out->author), "%s", sqlite3_column_text(st, 7));
-    snprintf(out->cover, sizeof(out->cover), "%s", sqlite3_column_text(st, 8));
+    out->completed_ts = sqlite3_column_int64(st, 6);
+    snprintf(out->title, sizeof(out->title), "%s", sqlite3_column_text(st, 7));
+    snprintf(out->author, sizeof(out->author), "%s", sqlite3_column_text(st, 8));
+    snprintf(out->cover, sizeof(out->cover), "%s", sqlite3_column_text(st, 9));
 }
 
 int tracker_read_state(const char *explorer_path, pb_state *out)
@@ -132,15 +155,16 @@ static void upsert_book(tracker *t, const pb_state *s)
 {
     sqlite3_stmt *st = NULL;
     const char *sql =
-        "INSERT INTO books (book_id, title, author, cover, cpage, npage, completed, last_seen)"
-        " VALUES (?1,?2,?3,?4,?5,?6,?7,?8)"
+        "INSERT INTO books"
+        " (book_id,title,author,cover,cpage,npage,completed,completed_ts,last_seen)"
+        " VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)"
         " ON CONFLICT(book_id) DO UPDATE SET title=?2, author=?3,"
         /* Never trade a known cover key for an empty one: the key is derived
          * from the firmware's files row, which disappears when the book is
          * deleted, while the cached image itself stays. Overwriting here is
          * what made the picture of a finished-and-deleted book unreachable. */
         "  cover = CASE WHEN ?4 = '' THEN cover ELSE ?4 END,"
-        "  cpage=?5, npage=?6, completed=?7, last_seen=?8";
+        "  cpage=?5, npage=?6, completed=?7, completed_ts=?8, last_seen=?9";
     if (sqlite3_prepare_v2(t->stats, sql, -1, &st, NULL) != SQLITE_OK)
         return;
     sqlite3_bind_int64(st, 1, s->bookid);
@@ -150,7 +174,8 @@ static void upsert_book(tracker *t, const pb_state *s)
     sqlite3_bind_int(st, 5, s->cpage);
     sqlite3_bind_int(st, 6, s->npage);
     sqlite3_bind_int(st, 7, s->completed);
-    sqlite3_bind_int64(st, 8, s->position_ts);
+    sqlite3_bind_int64(st, 8, s->completed_ts);
+    sqlite3_bind_int64(st, 9, s->position_ts);
     sqlite3_step(st);
     sqlite3_finalize(st);
 }
@@ -266,11 +291,13 @@ int tracker_recover(tracker *t)
     const char *sql =
         "SELECT s.bookid, s.opentime, s.position_ts,"
         "  IFNULL(s.cpage,0), IFNULL(s.npage,0), IFNULL(s.completed,0),"
+        "  IFNULL(s.completed_ts,0),"
         "  IFNULL(b.title,''), IFNULL(b.author,''),"
         "  IFNULL((SELECT f.storageid || lower(hex(f.fast_hash)) FROM files f"
         "          WHERE f.book_id = s.bookid ORDER BY f.storageid LIMIT 1), '')"
         " FROM books_settings s JOIN books_impl b ON b.id = s.bookid"
-        " WHERE s.opentime > 0 AND s.position_ts > 0";
+        " WHERE (s.opentime > 0 AND s.position_ts > 0)"
+        "    OR (s.completed = 1 AND s.completed_ts > 0)";
     sqlite3_stmt *st = NULL;
     if (sqlite3_prepare_v2(db, sql, -1, &st, NULL) != SQLITE_OK) {
         sqlite3_close(db);
@@ -280,10 +307,12 @@ int tracker_recover(tracker *t)
     while (sqlite3_step(st) == SQLITE_ROW) {
         pb_state s;
         fill_state(st, &s);
-        insert_session(t, &s, s.opentime, bounded(s.position_ts - s.opentime),
-                       0, 1);
+        if (s.opentime > 0 && s.position_ts > 0) {
+            insert_session(t, &s, s.opentime,
+                           bounded(s.position_ts - s.opentime), 0, 1);
+            n++;
+        }
         upsert_book(t, &s);
-        n++;
     }
     sqlite3_finalize(st);
     sqlite3_close(db);
@@ -326,6 +355,10 @@ int tracker_observe(tracker *t, const pb_state *s, int64_t present)
 {
     if (!s || s->bookid <= 0)
         return 0;
+
+    /* Marking a book finished does not necessarily turn a page. Persist its
+     * metadata before the position-based early return. */
+    upsert_book(t, s);
 
     const int fresh = (s->bookid != t->cur_book || s->opentime != t->cur_open);
     if (!fresh && s->position_ts <= t->cur_pos_ts)
@@ -375,7 +408,6 @@ int tracker_observe(tracker *t, const pb_state *s, int64_t present)
                 t->cur_row_base
                     + measured(present - t->cur_row_present, t->cur_row_moved),
                 s->cpage);
-    upsert_book(t, s);
     t->cur_pos_ts = s->position_ts;
     return fresh ? 1 : 2;
 }

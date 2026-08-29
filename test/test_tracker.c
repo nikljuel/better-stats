@@ -29,10 +29,10 @@ static sqlite3 *make_explorer(void)
            "CREATE TABLE files (book_id INTEGER, storageid INTEGER, fast_hash BLOB);"
            "CREATE TABLE books_settings (bookid INTEGER, profileid INTEGER,"
            " position TEXT, position_ts INTEGER, cpage INTEGER, npage INTEGER,"
-           " opentime INTEGER, completed INTEGER);");
+           " opentime INTEGER, completed INTEGER, completed_ts INTEGER);");
     ex(db, "INSERT INTO books_impl VALUES (7,'Testbuch','Autorin');"
            "INSERT INTO files VALUES (7,1,x'aabb');"
-           "INSERT INTO books_settings VALUES (7,1,'p',1000,10,300,1000,0);");
+           "INSERT INTO books_settings VALUES (7,1,'p',1000,10,300,1000,0,0);");
     return db;
 }
 
@@ -65,8 +65,19 @@ int main(void)
     sqlite3 *exp = make_explorer();
     unlink(ST_DB);
 
+    /* Upgrade the pre-completed_ts schema in place, preserving its rows. */
+    sqlite3 *legacy = NULL;
+    assert(sqlite3_open(ST_DB, &legacy) == SQLITE_OK);
+    ex(legacy, "CREATE TABLE books (book_id INTEGER PRIMARY KEY,title TEXT,"
+               " author TEXT,cover TEXT,cpage INTEGER,npage INTEGER,"
+               " completed INTEGER,last_seen INTEGER);"
+               "INSERT INTO books VALUES(99,'Alt','A','',1,2,1,3)");
+    sqlite3_close(legacy);
+
     tracker t;
     assert(tracker_init(&t, ST_DB, EXP_DB) == 0);
+    assert(q1(t.stats, "SELECT completed_ts FROM books WHERE book_id=99") == 0);
+    ex(t.stats, "DELETE FROM books WHERE book_id=99");
 
     /* read_state returns the book incl. metadata + cover hash */
     pb_state s;
@@ -74,12 +85,26 @@ int main(void)
     assert(s.bookid == 7 && s.opentime == 1000 && s.cpage == 10);
     assert(strcmp(s.title, "Testbuch") == 0);
     assert(strcmp(s.cover, "1aabb") == 0);
+    assert(s.completed_ts == 0);
 
     /* New session observed: a row starts at zero, pages_start = cpage */
     assert(tracker_observe(&t, &s, 0) == 1);
     assert(q1(t.stats, "SELECT COUNT(*) FROM sessions") == 1);
     assert(q1(t.stats, "SELECT active_seconds FROM sessions") == 0);
     assert(q1(t.stats, "SELECT pages_start FROM sessions") == 10);
+
+    /* Finishing or unfinishing does not require a page turn, but both changes
+     * must still reach the durable book row. */
+    ex(exp, "UPDATE books_settings SET completed=1,completed_ts=12345"
+            " WHERE bookid=7");
+    assert(tracker_read_state(EXP_DB, &s) == 0);
+    assert(tracker_observe(&t, &s, 0) == 0);
+    assert(q1(t.stats, "SELECT completed_ts FROM books WHERE book_id=7") == 12345);
+    ex(exp, "UPDATE books_settings SET completed=0,completed_ts=0 WHERE bookid=7");
+    assert(tracker_read_state(EXP_DB, &s) == 0);
+    assert(tracker_observe(&t, &s, 0) == 0);
+    assert(q1(t.stats, "SELECT completed FROM books WHERE book_id=7") == 0);
+    assert(q1(t.stats, "SELECT completed_ts FROM books WHERE book_id=7") == 0);
 
     /* Page turn after 60s: active += 60 */
     set_state(exp, 1000, 1060, 12);
@@ -123,9 +148,16 @@ int main(void)
     /* Recovery: session created without a daemon, backfilled + dedupe */
     tracker_close(&t);
     set_state(exp, 20000, 20000 + 1200, 40);
+    ex(exp, "INSERT INTO books_impl VALUES(8,'Fertig','Autor');"
+            "INSERT INTO books_settings VALUES(8,1,'p',0,0,0,0,1,23456)");
     assert(tracker_init(&t, ST_DB, EXP_DB) == 0);
     assert(tracker_recover(&t) >= 1);
     assert(q1(t.stats, "SELECT COUNT(*) FROM sessions") == 3);
+    assert(q1(t.stats, "SELECT completed_ts FROM books WHERE book_id=8") == 23456);
+    assert(q1(t.stats, "SELECT COUNT(*) FROM sessions WHERE book_id=8") == 0);
+    ex(t.stats, "DELETE FROM books WHERE book_id=8");
+    ex(exp, "DELETE FROM books_settings WHERE bookid=8;"
+            "DELETE FROM books_impl WHERE id=8");
     assert(q1(t.stats, "SELECT active_seconds FROM sessions WHERE start_time=20000") == 1200);
     assert(q1(t.stats, "SELECT recovered FROM sessions WHERE start_time=20000") == 1);
     /* Recovered = estimate: no pages_start, so it cannot skew pages/minute */

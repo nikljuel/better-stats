@@ -138,9 +138,13 @@ int main(void)
     tracker setup;
     assert(tracker_init(&setup, stats_path, explorer_path) == 0);
     sql(setup.stats,
-        "INSERT OR REPLACE INTO books(book_id,title,author,cover,cpage,npage,completed,last_seen)"
-        " VALUES(1,'Alpha','Ada','',25,100,0,0),(2,'Beta','Bea','',100,100,1,0),"
-        " (3,'Gamma','Gina','',200,200,1,0);"
+        "INSERT OR REPLACE INTO books"
+        " (book_id,title,author,cover,cpage,npage,completed,completed_ts,last_seen)"
+        " VALUES(1,'Alpha','Ada','1aa',25,100,0,0,0),"
+        " (2,'Beta','Bea','1bb',100,100,1,"
+        "  strftime('%s','2024-02-29 18:00:00'),0),"
+        " (3,'Gamma','Gina','1dd',200,200,1,"
+        "  strftime('%s','2024-01-15 10:00:00'),0);"
         "INSERT INTO sessions(book_id,start_time,end_time,active_seconds,pages_start,"
         " pages_end,recovered) VALUES"
         " (1,strftime('%s','2024-02-28 11:50:00'),strftime('%s','2024-02-28 12:00:00'),"
@@ -198,6 +202,33 @@ int main(void)
                   "/tmp/bs_model_firmware_covers/1bb.png") == 0);
     /* FB2 cover was extracted via base64 decode */
     assert(access("/tmp/bs_model_cache/covers/dd.png", R_OK) == 0);
+    bs_year_books_free(&books);
+
+    /* Returning a loan can remove every firmware row for it. Exact completion
+     * dates, calendar sessions and remembered covers must survive locally. */
+    assert(sqlite3_open(explorer_path, &explorer) == SQLITE_OK);
+    sql(explorer,
+        "DELETE FROM files WHERE book_id IN (2,3);"
+        "DELETE FROM books_settings WHERE bookid IN (2,3);"
+        "DELETE FROM books_impl WHERE id IN (2,3)");
+    sqlite3_close(explorer);
+
+    assert(bs_load_overall(context, &overall, &error) == 0);
+    assert(overall.books_finished == 2);
+    assert(bs_load_year(context, 2024, &year, &error) == 0);
+    assert(year.heat[14] == 2 && year.heat[59] == 2);
+    assert(bs_load_month(context, 2024, 2, &month, &error) == 0);
+    assert(month.day[28].book_count == 1);
+    assert(strcmp(month.day[28].books[0].title, "Beta") == 0);
+    assert(strcmp(month.day[28].books[0].cover_path,
+                  "/tmp/bs_model_firmware_covers/1bb.png") == 0);
+    bs_month_free(&month);
+    assert(bs_load_year_books(context, 2024, &books, &error) == 0);
+    assert(books.total == 2);
+    assert(strcmp(books.month[0][0].cover_path,
+                  "/tmp/bs_model_cache/covers/dd.png") == 0);
+    assert(strcmp(books.month[1][0].cover_path,
+                  "/tmp/bs_model_firmware_covers/1bb.png") == 0);
     bs_year_books_free(&books);
 
     bs_context_close(context);
