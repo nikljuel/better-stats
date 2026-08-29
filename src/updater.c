@@ -5,12 +5,12 @@
 
 #include "daemon.h"
 #include "miniz.h"
+#include "sha256.h"
 #include "sqlite3.h"
 
 #include <ctype.h>
 #include <dlfcn.h>
 #include <errno.h>
-#include <fcntl.h>
 #include <limits.h>
 #include <stdarg.h>
 #include <stdio.h>
@@ -414,57 +414,12 @@ int bs_update_check(bs_update_info *info, int connect_mode)
 
 static int sha256_file(const char *path, char out[65])
 {
-    int pipe_fd[2];
-    if (pipe(pipe_fd) != 0)
-        return 0;
-    pid_t pid = fork();
-    if (pid == 0) {
-        close(pipe_fd[0]);
-        dup2(pipe_fd[1], STDOUT_FILENO);
-        close(pipe_fd[1]);
-        execlp("sha256sum", "sha256sum", path, (char *)NULL);
-        _exit(127);
-    }
-    close(pipe_fd[1]);
-    ssize_t total = 0;
-    while (total < 64) {
-        ssize_t got = read(pipe_fd[0], out + total, (size_t)(64 - total));
-        if (got <= 0)
-            break;
-        total += got;
-    }
-    close(pipe_fd[0]);
-    int status = 0;
-    waitpid(pid, &status, 0);
-    if (total != 64 || !WIFEXITED(status) || WEXITSTATUS(status) != 0)
-        return 0;
-    for (int i = 0; i < 64; ++i) {
-        if (!isxdigit((unsigned char)out[i]))
-            return 0;
-        out[i] = (char)tolower((unsigned char)out[i]);
-    }
-    out[64] = '\0';
-    return 1;
+    return bs_sha256_file(path, out);
 }
 
 static int run_checksum(const char *directory)
 {
-    pid_t pid = fork();
-    if (pid == 0) {
-        int null = open("/dev/null", O_WRONLY);
-        if (null >= 0) {
-            dup2(null, STDOUT_FILENO);
-            dup2(null, STDERR_FILENO);
-            close(null);
-        }
-        if (chdir(directory) != 0)
-            _exit(127);
-        execlp("sha256sum", "sha256sum", "-c", "SHA256SUMS", (char *)NULL);
-        _exit(127);
-    }
-    int status = 0;
-    return pid > 0 && waitpid(pid, &status, 0) == pid
-        && WIFEXITED(status) && WEXITSTATUS(status) == 0;
+    return bs_sha256_check(directory);
 }
 
 static void remove_release(const char *directory)
@@ -538,12 +493,23 @@ int bs_update_install(bs_update_info *info)
     if (download_to(info, info->asset_url, zip_path, 60, 1) != 0)
         return info->error;
     struct stat zip_stat;
-    if (stat(zip_path, &zip_stat) != 0
-        || zip_stat.st_size != info->asset_size
-        || !sha256_file(zip_path, info->digest)) {
+    if (stat(zip_path, &zip_stat) != 0) {
         unlink(zip_path);
         return fail(info, BS_UPDATE_ERR_CORRUPT,
-                    "Downloaded ZIP failed its size or SHA-256 check");
+                    "Could not stat downloaded ZIP");
+    }
+    if (zip_stat.st_size != info->asset_size) {
+        update_log("size mismatch: got %lld, expected %lld",
+                   (long long)zip_stat.st_size, info->asset_size);
+        unlink(zip_path);
+        return fail(info, BS_UPDATE_ERR_CORRUPT,
+                    "ZIP size mismatch: %lld vs %lld",
+                    (long long)zip_stat.st_size, info->asset_size);
+    }
+    if (!sha256_file(zip_path, info->digest)) {
+        unlink(zip_path);
+        return fail(info, BS_UPDATE_ERR_CORRUPT,
+                    "SHA-256 of downloaded ZIP could not be computed");
     }
 
     char base[1024], releases[1024], final[1024], stage[1024];
