@@ -20,7 +20,7 @@
 #pragma weak SetPanelType
 
 enum { TAB_OVERVIEW, TAB_STREAK, TAB_CALENDAR, TAB_YEAR, TAB_COUNT };
-enum { DIALOG_NONE, DIALOG_DAY, DIALOG_MONTH };
+enum { DIALOG_NONE, DIALOG_DAY, DIALOG_MONTH, DIALOG_RELEASE_NOTES };
 
 typedef struct {
     bs_context *context;
@@ -57,6 +57,8 @@ typedef struct {
     int dialog_index;
     int dialog_scroll;
     int auto_update_scheduled;
+    const char *release_notes;
+    int release_scroll;
 } app_state;
 
 typedef struct {
@@ -71,6 +73,27 @@ typedef struct {
     int columns;
     int content_h;
 } dialog_layout;
+
+typedef struct {
+    int x;
+    int y;
+    int w;
+    int h;
+    int close_x;
+    int close_y;
+    int close_w;
+    int close_h;
+    int body_x;
+    int body_y;
+    int body_w;
+    int body_h;
+    int text_h;
+    int scroll_max;
+    int button_x;
+    int button_y;
+    int button_w;
+    int button_h;
+} release_dialog_layout;
 
 typedef struct {
     char path[BS_PATH_MAX];
@@ -653,6 +676,7 @@ static void draw_year(void)
     int month_count = app.current_month;
     int arrow_w = dp(30);
     char value[96];
+    char count[32];
 
     if (app.current_year > 2015)
         DrawSymbol(margin, top + dp(54) / 2 - dp(9), ARROW_LEFT);
@@ -662,13 +686,23 @@ static void draw_year(void)
 
     int header_x = margin + arrow_w;
     int header_w = app.width - margin * 2 - arrow_w * 2;
-    snprintf(value, sizeof(value), "%d", app.year_books.total);
+    snprintf(count, sizeof(count), "%d", app.year_books.total);
     set_font(app.large, BLACK);
-    text(header_x, top, dp(58), dp(54), value, ALIGN_LEFT | VALIGN_MIDDLE);
+    int count_w = StringWidth(count);
     snprintf(value, sizeof(value), "%s %d",
              tr("Bücher beendet in", "Books finished in"), app.current_year);
     set_font(app.body, 0x888888);
-    text(header_x + dp(36), top, header_w - dp(36), dp(54), value,
+    int title_w = StringWidth(value);
+    int gap = dp(12);
+    int group_x = (app.width - count_w - gap - title_w) / 2;
+    if (group_x < header_x)
+        group_x = header_x;
+    set_font(app.large, BLACK);
+    text(group_x, top, count_w, dp(54), count,
+         ALIGN_LEFT | VALIGN_MIDDLE);
+    set_font(app.body, 0x888888);
+    text(group_x + count_w + gap, top,
+         header_x + header_w - group_x - count_w - gap, dp(54), value,
          ALIGN_LEFT | VALIGN_MIDDLE | DOTS);
     separator(top + dp(60));
 
@@ -742,12 +776,20 @@ static dialog_layout detail_dialog_layout(size_t count)
     if (rows < 1)
         rows = 1;
     int tile_h = dp(150) + dp(30);
-    int tiles_h = rows * tile_h + (rows - 1) * gap;
     int header = dp(16) + dp(40) + dp(16);
-    int height = header + tiles_h + dp(20);
+    int footer = dp(28);
     int available = app.content_height - content_top();
+    int max_height = available - dp(20);
+    int visible_rows = (max_height - header - footer + gap)
+                       / (tile_h + gap);
+    if (visible_rows < 1)
+        visible_rows = 1;
+    if (rows > visible_rows)
+        rows = visible_rows;
+    int tiles_h = rows * tile_h + (rows - 1) * gap;
+    int height = header + tiles_h + footer;
     out.w = width;
-    out.h = imin(height, available - dp(20));
+    out.h = imin(height, max_height);
     out.content_h = tiles_h;
     out.x = (app.width - out.w) / 2;
     out.y = content_top() + (available - out.h) / 2;
@@ -832,12 +874,106 @@ static void draw_detail_dialog(void)
     if (max_scroll > 0) {
         int pages = max_scroll + 1;
         int page = app.dialog_scroll + 1;
-        char indicator[16];
+        char indicator[32];
         snprintf(indicator, sizeof(indicator), "%d/%d", page, pages);
         set_font(app.small, DGRAY);
         text(layout.x, layout.y + layout.h - dp(24),
              layout.w, dp(20), indicator, ALIGN_CENTER | VALIGN_MIDDLE);
     }
+}
+
+static release_dialog_layout release_layout(void)
+{
+    release_dialog_layout out;
+    memset(&out, 0, sizeof(out));
+    int margin = dp(20);
+    int fixed_h = dp(72 + 16 + 48 + 20);
+    int max_height = imin(app.content_height - margin * 2, dp(560));
+    out.w = imin(dp(560), app.width - margin * 2);
+    out.body_w = out.w - dp(48);
+    set_font(app.body, BLACK);
+    out.text_h = TextRectHeight(out.body_w,
+                                app.release_notes ? app.release_notes : "",
+                                ALIGN_LEFT | VALIGN_TOP);
+    if (out.text_h < dp(24))
+        out.text_h = dp(24);
+    out.h = imin(fixed_h + out.text_h, max_height);
+    out.x = (app.width - out.w) / 2;
+    out.y = (app.content_height - out.h) / 2;
+    out.close_w = dp(48);
+    out.close_h = dp(48);
+    out.close_x = out.x + out.w - dp(20) - out.close_w;
+    out.close_y = out.y + dp(10);
+    out.body_x = out.x + dp(20);
+    out.body_y = out.y + dp(72);
+    out.body_h = out.h - fixed_h;
+    out.scroll_max = imax(0, out.text_h - out.body_h);
+    out.button_x = out.x + dp(20);
+    out.button_y = out.y + out.h - dp(20 + 48);
+    out.button_w = out.w - dp(40);
+    out.button_h = dp(48);
+    return out;
+}
+
+static int release_page_height(const release_dialog_layout *layout)
+{
+    return imax(dp(40), layout->body_h - dp(24));
+}
+
+static void draw_release_dialog(void)
+{
+    release_dialog_layout layout = release_layout();
+    if (app.release_scroll > layout.scroll_max)
+        app.release_scroll = layout.scroll_max;
+
+    DimArea(0, 0, app.width, app.content_height, 0x777777);
+    FillArea(layout.x, layout.y, layout.w, layout.h, WHITE);
+    DrawRect(layout.x, layout.y, layout.w, layout.h, BLACK);
+
+    char title[128];
+    snprintf(title, sizeof(title),
+             tr("Neu in Better Stats %s", "What's new in Better Stats %s"),
+             *app.update.current_version ? app.update.current_version : "");
+    set_font(app.heading, BLACK);
+    text(layout.x + dp(20), layout.y + dp(16),
+         layout.w - dp(40) - layout.close_w, dp(40), title,
+         ALIGN_LEFT | VALIGN_MIDDLE | DOTS);
+    text(layout.close_x, layout.close_y, layout.close_w, layout.close_h, "X",
+         ALIGN_CENTER | VALIGN_MIDDLE);
+
+    SetClip(layout.body_x, layout.body_y, layout.body_w, layout.body_h);
+    set_font(app.body, BLACK);
+    text(layout.body_x, layout.body_y - app.release_scroll,
+         layout.body_w, layout.text_h, app.release_notes,
+         ALIGN_LEFT | VALIGN_TOP);
+    SetClip(0, 0, app.width, app.content_height);
+
+    if (layout.scroll_max > 0) {
+        int track_x = layout.body_x + layout.body_w + dp(7);
+        int thumb_h = imax(dp(24),
+            layout.body_h * layout.body_h / layout.text_h);
+        int thumb_y = layout.body_y
+            + (layout.body_h - thumb_h) * app.release_scroll
+              / layout.scroll_max;
+        FillArea(track_x, layout.body_y, dp(2), layout.body_h, LGRAY);
+        FillArea(track_x - dp(1), thumb_y, dp(4), thumb_h, DGRAY);
+
+        int page_height = release_page_height(&layout);
+        int pages = 1 + (layout.scroll_max + page_height - 1) / page_height;
+        int page = 1 + (app.release_scroll + page_height - 1) / page_height;
+        char indicator[32];
+        snprintf(indicator, sizeof(indicator), "%d/%d", page, pages);
+        set_font(app.small, DGRAY);
+        text(layout.x, layout.body_y + layout.body_h,
+             layout.w, dp(16), indicator, ALIGN_CENTER | VALIGN_MIDDLE);
+    }
+
+    FillArea(layout.button_x, layout.button_y,
+             layout.button_w, layout.button_h, BLACK);
+    set_font(app.heading, WHITE);
+    text(layout.button_x, layout.button_y,
+         layout.button_w, layout.button_h, tr("Verstanden", "Got it"),
+         ALIGN_CENTER | VALIGN_MIDDLE);
 }
 
 static void draw_error(void)
@@ -898,7 +1034,9 @@ static void draw(void)
         draw_calendar();
     else
         draw_year();
-    if (app.dialog != DIALOG_NONE)
+    if (app.dialog == DIALOG_RELEASE_NOTES)
+        draw_release_dialog();
+    else if (app.dialog != DIALOG_NONE)
         draw_detail_dialog();
     FullUpdate();
 }
@@ -1073,7 +1211,30 @@ static void show_settings(void)
 
 static void automatic_update(void)
 {
+    app.release_notes = bs_update_release_notes(app.german ? "de" : "en");
+    if (app.release_notes && *app.release_notes) {
+        app.release_scroll = 0;
+        app.dialog = DIALOG_RELEASE_NOTES;
+        draw();
+        return;
+    }
     check_for_updates(1);
+}
+
+static void continue_automatic_update(void)
+{
+    check_for_updates(1);
+}
+
+static void dismiss_release_notes(void)
+{
+    bs_update_mark_release_notes_seen();
+    app.dialog = DIALOG_NONE;
+    app.release_notes = NULL;
+    app.release_scroll = 0;
+    draw();
+    SetWeakTimer("betterstats-update-after-notes",
+                 continue_automatic_update, 200);
 }
 
 static int point_in(int x, int y, int left, int top, int width, int height)
@@ -1081,8 +1242,40 @@ static int point_in(int x, int y, int left, int top, int width, int height)
     return x >= left && x < left + width && y >= top && y < top + height;
 }
 
+static void release_scroll_by(int delta)
+{
+    release_dialog_layout layout = release_layout();
+    app.release_scroll = imax(0, imin(layout.scroll_max,
+                                     app.release_scroll + delta));
+    draw();
+}
+
+static void release_pointer_up(int x, int y)
+{
+    release_dialog_layout layout = release_layout();
+    if (!point_in(x, y, layout.x, layout.y, layout.w, layout.h)
+        || point_in(x, y, layout.close_x, layout.close_y,
+                    layout.close_w, layout.close_h)
+        || point_in(x, y, layout.button_x, layout.button_y,
+                    layout.button_w, layout.button_h)) {
+        dismiss_release_notes();
+        return;
+    }
+    if (layout.scroll_max > 0
+        && point_in(x, y, layout.body_x, layout.body_y,
+                    layout.body_w, layout.body_h)) {
+        int page = release_page_height(&layout);
+        release_scroll_by(y < layout.body_y + layout.body_h / 2
+                          ? -page : page);
+    }
+}
+
 static void pointer_up(int x, int y)
 {
+    if (app.dialog == DIALOG_RELEASE_NOTES) {
+        release_pointer_up(x, y);
+        return;
+    }
     if (app.dialog != DIALOG_NONE) {
         size_t count;
         dialog_books(&count);
@@ -1232,6 +1425,26 @@ static int handler(int type, int par1, int par2)
         return 1;
     }
     if (type == EVT_KEYUP) {
+        if (app.dialog == DIALOG_RELEASE_NOTES) {
+            if (par1 == IV_KEY_BACK || par1 == IV_KEY_OK) {
+                dismiss_release_notes();
+                return 1;
+            }
+            release_dialog_layout layout = release_layout();
+            int page = release_page_height(&layout);
+            if (par1 == IV_KEY_UP || par1 == IV_KEY_PREV
+                || par1 == IV_KEY_PREV2) {
+                release_scroll_by(-page);
+                return 1;
+            }
+            if (par1 == IV_KEY_DOWN || par1 == IV_KEY_NEXT
+                || par1 == IV_KEY_NEXT2) {
+                release_scroll_by(page);
+                return 1;
+            }
+            if (par1 != IV_KEY_HOME)
+                return 1;
+        }
         if (par1 == IV_KEY_BACK && app.dialog != DIALOG_NONE) {
             app.dialog = DIALOG_NONE;
             draw();

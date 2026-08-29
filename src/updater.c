@@ -29,6 +29,11 @@
 #define API_URL \
     "https://api.github.com/repos/nikljuel/better-stats/releases/latest"
 
+/* Filled immediately before the release; empty text keeps the dialog hidden. */
+static const char *release_notes_version = "v1.2.10";
+static const char *release_notes_de = "";
+static const char *release_notes_en = "";
+
 static const char *release_files[] = {
     "betterstats-qt-softfp",
     "betterstats-inkview-softfp",
@@ -397,6 +402,59 @@ static char *read_file(const char *path)
     data[size] = '\0';
     fclose(file);
     return data;
+}
+
+static int release_notes_seen_path(char out[1024])
+{
+    return snprintf(out, 1024, "%s/release-notes-seen", STATS_DIR) < 1024;
+}
+
+int bs_update_release_notes_pending(void)
+{
+    bs_update_info info = {0};
+    if (bs_update_read_current(&info) != 0
+        || strcmp(info.current_version, release_notes_version) != 0)
+        return 0;
+
+    char path[1024];
+    if (!release_notes_seen_path(path))
+        return 0;
+    char *seen = read_file(path);
+    if (!seen)
+        return 1;
+    seen[strcspn(seen, "\r\n")] = '\0';
+    const int pending = !safe_name(seen)
+        || bs_update_version_compare(seen, release_notes_version) < 0;
+    free(seen);
+    return pending;
+}
+
+const char *bs_update_release_notes(const char *language)
+{
+    if (!bs_update_release_notes_pending())
+        return NULL;
+    return language && !strncmp(language, "de", 2)
+        ? release_notes_de : release_notes_en;
+}
+
+int bs_update_mark_release_notes_seen(void)
+{
+    bs_update_info info = {0};
+    if (bs_update_read_current(&info) != 0
+        || strcmp(info.current_version, release_notes_version) != 0
+        || !make_dir(STATS_DIR))
+        return -1;
+    char path[1024];
+    if (!release_notes_seen_path(path))
+        return -1;
+    FILE *file = fopen(path, "w");
+    int ok = 0;
+    if (file) {
+        ok = fprintf(file, "%s\n", release_notes_version) > 0;
+        if (fclose(file) != 0)
+            ok = 0;
+    }
+    return ok ? 0 : -1;
 }
 
 int bs_update_check(bs_update_info *info, int connect_mode)

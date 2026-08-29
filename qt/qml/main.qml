@@ -12,6 +12,11 @@ Window {
     color: GlobalValues.defaultBackgroundColor
     title: "Better Stats"
 
+    Component.onCompleted: {
+        releaseNotesDialog.message = stats.releaseNotes(deviceLang)
+        releaseNotesDialog.visible = releaseNotesDialog.message !== ""
+    }
+
     AppHeader {
         id: appHeader
 
@@ -130,7 +135,10 @@ Window {
             if (event.key === Qt.Key_Back || event.key === Qt.Key_Escape
                     || event.key === Qt.Key_Home) {
                 event.accepted = true;
-                Qt.quit();
+                if (releaseNotesDialog.visible)
+                    releaseNotesDialog.dismiss()
+                else
+                    Qt.quit();
             }
         }
 
@@ -159,8 +167,49 @@ Window {
         target: stats
 
         function onUpdateChanged() {
+            if (stats.updateState === "available" && !settingsDialog.visible
+                    && !releaseNotesDialog.visible)
+                updateDialog.visible = true
+        }
+    }
+
+    PanelDialog {
+        id: releaseNotesDialog
+
+        property string message: ""
+        title: Tr.t("Neu in Better Stats %1", "What's new in Better Stats %1")
+                 .arg(stats.currentVersion)
+
+        onDismissed: {
+            stats.dismissReleaseNotes()
             if (stats.updateState === "available" && !settingsDialog.visible)
                 updateDialog.visible = true
+        }
+
+        StyledText {
+            width: parent.width
+            styledFont: FontStyles.BodyL
+            color: GlobalValues.defaultTextColor
+            wrapMode: Text.Wrap
+            text: releaseNotesDialog.message
+        }
+
+        footer: Rectangle {
+            width: parent.width
+            height: Global.dp(48)
+            color: GlobalValues.defaultTextColor
+
+            StyledText {
+                anchors.centerIn: parent
+                styledFont: FontStyles.BodyLBold
+                color: GlobalValues.defaultBackgroundColor
+                text: Tr.t("Verstanden", "Got it")
+            }
+
+            MouseArea {
+                anchors.fill: parent
+                onClicked: releaseNotesDialog.dismiss()
+            }
         }
     }
 

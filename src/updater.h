@@ -40,6 +40,10 @@ int bs_update_read_current(bs_update_info *info);
 int bs_update_check(bs_update_info *info, int connect_mode);
 int bs_update_install(bs_update_info *info);
 int bs_update_restart(void);
+/* Embedded, per-release notes shared by the Qt and InkView frontends. */
+int bs_update_release_notes_pending(void);
+const char *bs_update_release_notes(const char *language);
+int bs_update_mark_release_notes_seen(void);
 
 /* Kept public for the small host-side parser check. */
 int bs_update_parse_release(const char *json, bs_update_info *info);

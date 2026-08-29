@@ -12,6 +12,15 @@ Item {
 
     property string title: ""
     default property alias content: contentSlot.data
+    property alias footer: footerSlot.data
+    signal dismissed()
+
+    function dismiss() {
+        if (!visible)
+            return
+        visible = false
+        dismissed()
+    }
 
     Rectangle {
         anchors.fill: parent
@@ -20,7 +29,7 @@ Item {
 
         MouseArea {
             anchors.fill: parent
-            onClicked: dlg.visible = false
+            onClicked: dlg.dismiss()
         }
     }
 
@@ -29,7 +38,9 @@ Item {
         width: Math.min(GlobalValues.defaultDialogWidth,
                         dlg.width - Global.dp(40))
         height: Math.min(
-            Global.dp(88) + contentSlot.implicitHeight,
+            Global.dp(88) + contentSlot.implicitHeight
+            + (footerSlot.implicitHeight > 0
+               ? Global.dp(12) + footerSlot.implicitHeight : 0),
             dlg.height - Global.dp(80))
         color: GlobalValues.defaultBackgroundColor
         border.width: GlobalValues.dialogBorderWidth
@@ -74,7 +85,7 @@ Item {
 
                 MouseArea {
                     anchors.fill: parent
-                    onClicked: dlg.visible = false
+                    onClicked: dlg.dismiss()
                 }
             }
         }
@@ -84,10 +95,11 @@ Item {
             anchors.topMargin: Global.dp(16)
             anchors.left: parent.left
             anchors.right: parent.right
-            anchors.bottom: parent.bottom
+            anchors.bottom: footerSlot.top
             anchors.leftMargin: Global.dp(20)
             anchors.rightMargin: Global.dp(20)
-            anchors.bottomMargin: Global.dp(16)
+            anchors.bottomMargin: footerSlot.implicitHeight > 0
+                                  ? Global.dp(12) : 0
             contentHeight: contentSlot.implicitHeight
             clip: true
             boundsBehavior: Flickable.StopAtBounds
@@ -97,6 +109,18 @@ Item {
                 width: parent.width
                 spacing: Global.dp(12)
             }
+        }
+
+        Column {
+            id: footerSlot
+
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.bottom: parent.bottom
+            anchors.leftMargin: Global.dp(20)
+            anchors.rightMargin: Global.dp(20)
+            anchors.bottomMargin: Global.dp(16)
+            spacing: Global.dp(12)
         }
     }
 }

@@ -31,6 +31,8 @@ public:
     Q_INVOKABLE void setAutomaticUpdates(bool enabled);
     Q_INVOKABLE void checkForUpdates();
     Q_INVOKABLE void installUpdate();
+    Q_INVOKABLE QString releaseNotes(const QString &language);
+    Q_INVOKABLE void dismissReleaseNotes();
 
     bool automaticUpdates() const;
     QString updateState() const;
@@ -49,4 +51,6 @@ private:
     bs_context *context_ = nullptr;
     bs_update_info update_{};
     QString updateState_ = QStringLiteral("idle");
+    bool releaseNotesPending_ = false;
+    bool automaticUpdateDeferred_ = false;
 };

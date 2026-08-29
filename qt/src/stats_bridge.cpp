@@ -88,6 +88,26 @@ int StatsBridge::updateError() const
     return update_.error;
 }
 
+QString StatsBridge::releaseNotes(const QString &language)
+{
+    const QByteArray name = language.toUtf8();
+    const char *notes = bs_update_release_notes(name.constData());
+    releaseNotesPending_ = notes && *notes;
+    return releaseNotesPending_ ? QString::fromUtf8(notes) : QString();
+}
+
+void StatsBridge::dismissReleaseNotes()
+{
+    if (!releaseNotesPending_)
+        return;
+    bs_update_mark_release_notes_seen();
+    releaseNotesPending_ = false;
+    if (automaticUpdateDeferred_) {
+        automaticUpdateDeferred_ = false;
+        QTimer::singleShot(0, this, &StatsBridge::automaticUpdate);
+    }
+}
+
 void StatsBridge::setUpdateState(const char *state)
 {
     updateState_ = QString::fromLatin1(state);
@@ -148,6 +168,10 @@ void StatsBridge::installUpdate()
 
 void StatsBridge::automaticUpdate()
 {
+    if (releaseNotesPending_) {
+        automaticUpdateDeferred_ = true;
+        return;
+    }
     if (automaticUpdates())
         checkForUpdates(true);
 }

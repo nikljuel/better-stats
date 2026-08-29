@@ -126,6 +126,7 @@ int main(void)
 
     mkdir("/tmp/bs_update_test", 0755);
     unlink("/tmp/bs_update_test/updates-disabled");
+    unlink("/tmp/bs_update_test/release-notes-seen");
     assert(bs_update_auto_enabled());
     assert(bs_update_set_auto_enabled(0) == 0);
     assert(!bs_update_auto_enabled());
@@ -173,6 +174,31 @@ int main(void)
     assert(download_count == 0);
     assert(silent_connect_count == 1);
     assert(prompt_connect_count == 0);
+
+    current = fopen(
+        "/tmp/bs_update_install/applications/betterstats/current", "w");
+    assert(current != NULL);
+    assert(fputs("v1.2.10\n", current) >= 0);
+    assert(fclose(current) == 0);
+    assert(bs_update_release_notes_pending());
+    assert(bs_update_release_notes("de") != NULL);
+    assert(bs_update_release_notes("de")[0] == '\0');
+    assert(bs_update_release_notes("en")[0] == '\0');
+    assert(bs_update_mark_release_notes_seen() == 0);
+    assert(!bs_update_release_notes_pending());
+
+    FILE *seen = fopen("/tmp/bs_update_test/release-notes-seen", "w");
+    assert(seen != NULL);
+    assert(fputs("v1.2.11\n", seen) >= 0);
+    assert(fclose(seen) == 0);
+    assert(!bs_update_release_notes_pending());
+
+    current = fopen(
+        "/tmp/bs_update_install/applications/betterstats/current", "w");
+    assert(current != NULL);
+    assert(fputs("v1.2.11\n", current) >= 0);
+    assert(fclose(current) == 0);
+    assert(!bs_update_release_notes_pending());
 
     puts("all updater tests ok");
     return 0;
