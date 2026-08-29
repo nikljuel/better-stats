@@ -145,43 +145,37 @@ int main(void)
      * saw the session, never backdated to the firmware's opentime. */
     assert(q1(t.stats, "SELECT active_seconds FROM sessions WHERE start_time=90000") == 0);
 
-    /* Recovery: session created without a daemon, backfilled + dedupe */
+    /* Recovery: books are imported, but no sessions are created */
     tracker_close(&t);
     set_state(exp, 20000, 20000 + 1200, 40);
     ex(exp, "INSERT INTO books_impl VALUES(8,'Fertig','Autor');"
             "INSERT INTO books_settings VALUES(8,1,'p',0,0,0,0,1,23456)");
     assert(tracker_init(&t, ST_DB, EXP_DB) == 0);
     assert(tracker_recover(&t) >= 1);
-    assert(q1(t.stats, "SELECT COUNT(*) FROM sessions") == 3);
+    assert(q1(t.stats, "SELECT COUNT(*) FROM sessions") == 2);
     assert(q1(t.stats, "SELECT completed_ts FROM books WHERE book_id=8") == 23456);
     assert(q1(t.stats, "SELECT COUNT(*) FROM sessions WHERE book_id=8") == 0);
+    assert(q1(t.stats, "SELECT COUNT(*) FROM sessions WHERE start_time=20000") == 0);
     ex(t.stats, "DELETE FROM books WHERE book_id=8");
     ex(exp, "DELETE FROM books_settings WHERE bookid=8;"
             "DELETE FROM books_impl WHERE id=8");
-    assert(q1(t.stats, "SELECT active_seconds FROM sessions WHERE start_time=20000") == 1200);
-    assert(q1(t.stats, "SELECT recovered FROM sessions WHERE start_time=20000") == 1);
-    /* Recovered = estimate: no pages_start, so it cannot skew pages/minute */
-    assert(q1(t.stats, "SELECT pages_start IS NULL FROM sessions WHERE start_time=20000") == 1);
     tracker_recover(&t); /* idempotent */
-    assert(q1(t.stats, "SELECT COUNT(*) FROM sessions") == 3);
+    assert(q1(t.stats, "SELECT COUNT(*) FROM sessions") == 2);
 
-    /* Backfilled sessions are capped -- nobody watched them */
-    set_state(exp, 50000, 50000 + 10 * 3600, 60);
-    tracker_recover(&t);
-    assert(q1(t.stats, "SELECT active_seconds FROM sessions WHERE start_time=50000") ==
-           SESSION_CAP_SECONDS);
+    /* Archive migration: recovered rows from a pre-fix DB are moved */
+    ex(t.stats, "INSERT OR IGNORE INTO sessions (book_id,start_time,end_time,"
+                "active_seconds,recovered) VALUES (80,2000000,2001200,1200,1)");
+    tracker_close(&t);
+    assert(tracker_init(&t, ST_DB, EXP_DB) == 0);
+    assert(q1(t.stats, "SELECT COUNT(*) FROM sessions WHERE book_id=80") == 0);
+    assert(q1(t.stats, "SELECT COUNT(*) FROM sessions_archived WHERE book_id=80") == 1);
+    assert(q1(t.stats, "SELECT active_seconds FROM sessions_archived"
+                       " WHERE book_id=80") == 1200);
+    ex(t.stats, "DELETE FROM sessions_archived WHERE book_id=80");
 
-    /* Stale position_ts: the firmware stamps opentime on open but refreshes
-     * position_ts only on a page turn, so it still holds the previous
-     * session's value. A recovered row must not end before it started. */
-    set_state(exp, 100000, 99000, 70);
-    tracker_recover(&t);
-    assert(q1(t.stats, "SELECT end_time FROM sessions WHERE start_time=100000") == 100000);
-    assert(q1(t.stats, "SELECT active_seconds FROM sessions WHERE start_time=100000") == 0);
-
-    /* Same staleness live: the daemon starts mid-session, then the first page
-     * turn must count only the time since opentime -- not the whole bogus gap
-     * back to the stale position_ts (which would land at IDLE_CAP). */
+    /* Stale position_ts live: the daemon starts mid-session, then the first
+     * page turn must count only the time since opentime -- not the whole bogus
+     * gap back to the stale position_ts. */
     set_state(exp, 200000, 199000, 80);
     assert(tracker_read_state(EXP_DB, &s) == 0);
     assert(s.position_ts == 200000); /* clamped on read */
@@ -191,15 +185,6 @@ int main(void)
     assert(tracker_read_state(EXP_DB, &s) == 0);
     assert(tracker_observe(&t, &s, 120) == 2);
     assert(q1(t.stats, "SELECT active_seconds FROM sessions WHERE start_time=200000") == 120);
-
-    /* Rows written by older versions get retrofitted on open */
-    ex(t.stats, "UPDATE sessions SET active_seconds=6*3600, pages_start=5"
-                " WHERE start_time=50000");
-    tracker_close(&t);
-    assert(tracker_init(&t, ST_DB, EXP_DB) == 0);
-    assert(q1(t.stats, "SELECT active_seconds FROM sessions WHERE start_time=50000") ==
-           SESSION_CAP_SECONDS);
-    assert(q1(t.stats, "SELECT pages_start IS NULL FROM sessions WHERE start_time=50000") == 1);
 
     /* Short pauses between page turns count in full */
     set_state(exp, 400000, 400000, 90);
@@ -230,16 +215,17 @@ int main(void)
     assert(tracker_observe(&t, &s, 1000 + 600) == 2);
     assert(q1(t.stats, "SELECT active_seconds FROM sessions WHERE start_time=500000") == 600);
 
-    /* The page ceiling bounds an awake device nobody was reading on: two pages
-     * turned may buy at most 2 * SECONDS_PER_PAGE_CAP, however long we sat there. */
+    /* The page ceiling bounds an awake device nobody was reading on: the page
+     * being read plus two turns = 3 pages of budget, however long we sat. */
     set_state(exp, 600000, 600000, 300);
     assert(tracker_read_state(EXP_DB, &s) == 0);
     assert(tracker_observe(&t, &s, 5000) == 1);
     set_state(exp, 600000, 600000 + 7200, 302); /* 2 h present, 2 pages */
     assert(tracker_read_state(EXP_DB, &s) == 0);
     assert(tracker_observe(&t, &s, 5000 + 7200) == 2);
-    assert(q1(t.stats, "SELECT active_seconds FROM sessions WHERE start_time=600000")
-           == 2 * SECONDS_PER_PAGE_CAP);
+    assert(q1(t.stats, "SELECT SUM(active_seconds) FROM sessions"
+                       " WHERE start_time IN (600000,601200)")
+           == 3 * SECONDS_PER_PAGE_CAP);
 
     /* Session across local midnight is split so both days get their time */
     set_state(exp, 82500, 82500, 20); /* 1970-01-01 23:55 CET */
@@ -333,13 +319,13 @@ int main(void)
         assert(q1(t.stats, "SELECT active_seconds FROM sessions WHERE start_time=900000") == 840);
     }
 
-    /* A row backfilled as an estimate becomes measured once we track it live,
-     * otherwise it stays excluded from pages/minute and the streak forever. */
+    /* Recovery populates books; the daemon then tracks a fresh session. */
     set_state(exp, 950000, 950500, 300);
     tracker_close(&t);
     assert(tracker_init(&t, ST_DB, EXP_DB) == 0);
     assert(tracker_recover(&t) >= 1);
-    assert(q1(t.stats, "SELECT recovered FROM sessions WHERE start_time=950000") == 1);
+    assert(q1(t.stats, "SELECT COUNT(*) FROM sessions WHERE start_time=950000") == 0);
+    assert(q1(t.stats, "SELECT book_id FROM books WHERE book_id=7") == 7);
     assert(tracker_read_state(EXP_DB, &s) == 0);
     assert(tracker_observe(&t, &s, 0) == 1);
     assert(q1(t.stats, "SELECT recovered FROM sessions WHERE start_time=950000") == 0);
@@ -348,12 +334,150 @@ int main(void)
                 "DELETE FROM sessions WHERE book_id IN (55,56)");
     t.cur_book = 0;
 
-    /* stats_overall computes without crashing and plausibly */
+    /* Book switch flushes the old book's accumulated time. */
+    {
+        pb_state a, b;
+        memset(&a, 0, sizeof a);
+        a.bookid = 70; a.opentime = 1100000;
+        snprintf(a.title, sizeof a.title, "FlushA");
+        a.position_ts = 1100000; a.cpage = 10;
+        assert(tracker_observe(&t, &a, 0) == 1);
+        a.position_ts = 1100060; a.cpage = 12;
+        assert(tracker_observe(&t, &a, 60) == 2);
+        assert(q1(t.stats, "SELECT active_seconds FROM sessions"
+                           " WHERE book_id=70 AND start_time=1100000") == 60);
+        /* 200 more seconds pass with no page turn, then switch to book B. */
+        memset(&b, 0, sizeof b);
+        b.bookid = 71; b.opentime = 1100261;
+        snprintf(b.title, sizeof b.title, "FlushB");
+        b.position_ts = 1100320; b.cpage = 5;
+        assert(tracker_observe(&t, &b, 260) == 1);
+        /* Flush captured the full 260s (1 initial + 2 turns → cap 900 > 260). */
+        assert(q1(t.stats, "SELECT active_seconds FROM sessions"
+                           " WHERE book_id=70 AND start_time=1100000") == 260);
+        assert(q1(t.stats, "SELECT end_time FROM sessions"
+                           " WHERE book_id=70 AND start_time=1100000") == 1100260);
+    }
+    ex(t.stats, "DELETE FROM sessions WHERE book_id IN (70,71);"
+                "DELETE FROM books WHERE book_id IN (70,71)");
+    t.cur_book = 0;
+
+    /* A book switch may arrive before the old book's final DB write was
+     * observed. Flush reads that stable old row once and keeps its final page. */
+    {
+        pb_state a, b;
+        ex(exp, "INSERT INTO books_impl VALUES(74,'FinalPage','Autor');"
+                "INSERT INTO books_settings"
+                " VALUES(74,1,'p',1400000,10,100,1400000,0,0)");
+        assert(tracker_read_state(EXP_DB, &a) == 0);
+        assert(a.bookid == 74 && a.cpage == 10);
+        assert(tracker_observe(&t, &a, 0) == 1);
+        ex(exp, "UPDATE books_settings SET position_ts=1400180,cpage=13"
+                " WHERE bookid=74");
+
+        memset(&b, 0, sizeof b);
+        b.bookid = 75; b.opentime = 1400201; b.position_ts = 1400201;
+        b.cpage = 4; b.npage = 100;
+        snprintf(b.title, sizeof b.title, "NextBook");
+        assert(tracker_observe(&t, &b, 200) == 1);
+        assert(q1(t.stats, "SELECT pages_end FROM sessions"
+                           " WHERE book_id=74 AND start_time=1400000") == 13);
+        assert(q1(t.stats, "SELECT cpage FROM books WHERE book_id=74") == 13);
+        assert(q1(t.stats, "SELECT active_seconds FROM sessions"
+                           " WHERE book_id=74 AND start_time=1400000") == 200);
+        assert(q1(t.stats, "SELECT end_time FROM sessions"
+                           " WHERE book_id=74 AND start_time=1400000") == 1400200);
+    }
+    ex(exp, "DELETE FROM books_settings WHERE bookid=74;"
+            "DELETE FROM books_impl WHERE id=74");
+    ex(t.stats, "DELETE FROM sessions WHERE book_id IN (74,75);"
+                "DELETE FROM books WHERE book_id IN (74,75)");
+    t.cur_book = 0;
+
+    /* tracker_flush persists in-memory time (simulates daemon exit). */
+    {
+        pb_state f;
+        memset(&f, 0, sizeof f);
+        f.bookid = 72; f.opentime = 1200000;
+        snprintf(f.title, sizeof f.title, "FlushMe");
+        f.position_ts = 1200000; f.cpage = 15;
+        assert(tracker_observe(&t, &f, 0) == 1);
+        f.position_ts = 1200060; f.cpage = 17;
+        assert(tracker_observe(&t, &f, 60) == 2);
+        assert(q1(t.stats, "SELECT active_seconds FROM sessions"
+                           " WHERE start_time=1200000") == 60);
+        /* 120 more seconds, no page turn. Without flush this would be lost. */
+        tracker_flush(&t, 180, 1200180);
+        /* 1 initial + 2 turns → cap 900 > 180, so full 180s credited. */
+        assert(q1(t.stats, "SELECT active_seconds FROM sessions"
+                           " WHERE start_time=1200000") == 180);
+        assert(q1(t.stats, "SELECT end_time FROM sessions"
+                           " WHERE start_time=1200000") == 1200180);
+    }
+    ex(t.stats, "DELETE FROM sessions WHERE book_id=72;"
+                "DELETE FROM books WHERE book_id=72");
+    t.cur_book = 0;
+
+    /* Reading one page without turning: position_ts updates but cpage stays.
+     * The initial page budget (1) caps at SECONDS_PER_PAGE_CAP. */
+    {
+        pb_state np;
+        memset(&np, 0, sizeof np);
+        np.bookid = 73; np.opentime = 1300000;
+        snprintf(np.title, sizeof np.title, "NoPageTurn");
+        np.position_ts = 1300000; np.cpage = 5;
+        assert(tracker_observe(&t, &np, 0) == 1);
+        np.position_ts = 1300060; /* position_ts moved, cpage didn't */
+        assert(tracker_observe(&t, &np, 60) == 2);
+        assert(q1(t.stats, "SELECT active_seconds FROM sessions"
+                           " WHERE start_time=1300000") == 60);
+        np.position_ts = 1300400;
+        assert(tracker_observe(&t, &np, 400) == 2);
+        assert(q1(t.stats, "SELECT active_seconds FROM sessions"
+                           " WHERE start_time=1300000") == SECONDS_PER_PAGE_CAP);
+    }
+    ex(t.stats, "DELETE FROM sessions WHERE book_id=73;"
+                "DELETE FROM books WHERE book_id=73");
+    t.cur_book = 0;
+
+    /* A no-turn exit across midnight is split without granting the one-page
+     * ceiling once per day. Total credit remains one page = 300 seconds. */
+    {
+        pb_state m;
+        memset(&m, 0, sizeof m);
+        m.bookid = 76; m.opentime = 82500; m.position_ts = 82500;
+        m.cpage = 20; m.npage = 100;
+        snprintf(m.title, sizeof m.title, "MidnightFlush");
+        assert(tracker_observe(&t, &m, 0) == 1);
+        tracker_flush(&t, 400, 82900);
+        assert(q1(t.stats, "SELECT COUNT(*) FROM sessions WHERE book_id=76") == 2);
+        assert(q1(t.stats, "SELECT SUM(active_seconds) FROM sessions"
+                           " WHERE book_id=76") == SECONDS_PER_PAGE_CAP);
+        assert(q1(t.stats, "SELECT active_seconds FROM sessions"
+                           " WHERE book_id=76 AND start_time=82500") == 225);
+        assert(q1(t.stats, "SELECT active_seconds FROM sessions"
+                           " WHERE book_id=76 AND start_time=82800") == 75);
+    }
+    ex(t.stats, "DELETE FROM sessions WHERE book_id=76;"
+                "DELETE FROM books WHERE book_id=76");
+    t.cur_book = 0;
+
+    /* Pages/hour uses net forward progress over all measured reading time.
+     * The unchanged page contributes time but no page to the numerator. */
     overall_stats o;
-    ex(t.stats, "UPDATE books SET completed=1"); /* for the finished counter */
+    int64_t book_secs = 0;
+    double book_pages_per_min = 0;
+    ex(t.stats, "DELETE FROM sessions;"
+                "UPDATE books SET completed=1,npage=300 WHERE book_id=7;"
+                "INSERT INTO sessions"
+                " (book_id,start_time,end_time,active_seconds,pages_start,pages_end)"
+                " VALUES (7,1,120,120,7,7),(7,121,300,180,9,10)");
     assert(stats_overall(t.stats, &o) == 0);
     assert(o.books_total == 1 && o.books_finished == 1);
-    assert(o.total_hours > 0);
+    assert(o.pages_per_min > 0.199 && o.pages_per_min < 0.201);
+    stats_book(t.stats, 7, &book_secs, &book_pages_per_min);
+    assert(book_secs == 300);
+    assert(book_pages_per_min > 0.199 && book_pages_per_min < 0.201);
 
     /* Streak: anchored at today, one day of gap ends it, < 60 s/day never counts */
     ex(t.stats, "DELETE FROM sessions");

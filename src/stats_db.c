@@ -44,13 +44,15 @@ int stats_overall(sqlite3 *db, overall_stats *o)
             "SELECT AVG(active_seconds)/60.0 FROM sessions"
             " WHERE active_seconds >= 60 AND recovered = 0");
     double mins = q_double(db,
-        "SELECT SUM(active_seconds)/60.0 FROM sessions"
-        " WHERE pages_start IS NOT NULL AND pages_end > pages_start"
-        " AND active_seconds > 0 AND recovered = 0");
+        "SELECT SUM(s.active_seconds)/60.0 FROM sessions s"
+        " JOIN books b ON b.book_id=s.book_id"
+        " WHERE s.pages_start IS NOT NULL AND s.pages_end IS NOT NULL"
+        " AND b.npage > 0 AND s.active_seconds > 0 AND s.recovered = 0");
     double pages = q_double(db,
-        "SELECT SUM(pages_end - pages_start) FROM sessions"
-        " WHERE pages_start IS NOT NULL AND pages_end > pages_start"
-        " AND active_seconds > 0 AND recovered = 0");
+        "SELECT SUM(s.pages_end - s.pages_start) FROM sessions s"
+        " JOIN books b ON b.book_id=s.book_id"
+        " WHERE s.pages_start IS NOT NULL AND s.pages_end > s.pages_start"
+        " AND b.npage > 0 AND s.active_seconds > 0 AND s.recovered = 0");
     if (mins > 0)
         o->pages_per_min = pages / mins;
     o->books_total = (int)q_double(db, "SELECT COUNT(*) FROM books");
@@ -116,12 +118,16 @@ void stats_book(sqlite3 *db, int64_t bookid, int64_t *secs, double *pages_per_mi
     *pages_per_min = 0;
     sqlite3_stmt *st = NULL;
     const char *sql =
-        "SELECT IFNULL(SUM(active_seconds),0),"
-        " IFNULL(SUM(CASE WHEN pages_start IS NOT NULL AND pages_end > pages_start"
-        "   AND recovered = 0 THEN pages_end - pages_start END),0),"
-        " IFNULL(SUM(CASE WHEN pages_start IS NOT NULL AND pages_end > pages_start"
-        "   AND recovered = 0 THEN active_seconds END),0)"
-        " FROM sessions WHERE book_id = ?1";
+        "SELECT IFNULL(SUM(s.active_seconds),0),"
+        " IFNULL(SUM(CASE WHEN s.pages_start IS NOT NULL"
+        "   AND s.pages_end > s.pages_start AND s.active_seconds > 0"
+        "   AND s.recovered = 0 AND b.npage > 0"
+        "   THEN s.pages_end - s.pages_start END),0),"
+        " IFNULL(SUM(CASE WHEN s.pages_start IS NOT NULL"
+        "   AND s.pages_end IS NOT NULL AND s.recovered = 0 AND b.npage > 0"
+        "   THEN s.active_seconds END),0)"
+        " FROM sessions s LEFT JOIN books b ON b.book_id=s.book_id"
+        " WHERE s.book_id = ?1";
     if (sqlite3_prepare_v2(db, sql, -1, &st, NULL) == SQLITE_OK) {
         sqlite3_bind_int64(st, 1, bookid);
         if (sqlite3_step(st) == SQLITE_ROW) {

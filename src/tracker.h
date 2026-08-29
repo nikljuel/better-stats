@@ -4,11 +4,6 @@
 #include <stdint.h>
 #include <sqlite3.h>
 
-/* Ceiling for sessions nobody watched: tracker_recover() backfills from the
- * firmware's two endpoints alone, with no idea how much of the span the device
- * spent switched off. Observed sessions are NOT capped -- their off-time is
- * measured, so capping them would only truncate genuine long reading. */
-#define SESSION_CAP_SECONDS (90 * 60)
 #define POLL_SECONDS 30
 /* How long a gap between two daemon loops may be and still count as the daemon
  * having been continuously present. Reading time is the sum of such gaps: the
@@ -46,6 +41,8 @@ typedef struct {
     int64_t cur_book, cur_open, cur_pos_ts;
     int64_t cur_row_base;    /* active_seconds the row already had when adopted */
     int64_t cur_row_present; /* presence total when the row was adopted */
+    int64_t cur_last_present;/* presence total at the last persisted endpoint */
+    int64_t cur_budget_used; /* page-budget seconds assigned to earlier day rows */
     int cur_row_moved;       /* pages moved since, as distance -- back counts too */
     int cur_pages_last;      /* last cpage seen, to measure that distance */
     int64_t cur_row_start; /* start_time of the row we currently write to */
@@ -62,6 +59,10 @@ int tracker_recover(tracker *t);
  * span standby as well as reading and cannot tell them apart, so the session's
  * time comes from this counter rather than from the endpoints. */
 int tracker_observe(tracker *t, const pb_state *s, int64_t present);
+/* Writes the current session through end_time. Call before any code path that
+ * would lose the in-memory presence counter (book switch, daemon exit). Safe
+ * to call when no session is active. */
+void tracker_flush(tracker *t, int64_t present, int64_t end_time);
 void tracker_close(tracker *t);
 
 #endif

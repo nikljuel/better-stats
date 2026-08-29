@@ -172,6 +172,13 @@ int run_daemon(void)
             tracker_observe(&t, &s, present);
         wait_for_library_change(wfd);
     }
+    {
+        const time_t now = time(NULL);
+        const time_t gap = last_loop ? now - last_loop : 0;
+        if (gap > 0 && gap <= PRESENCE_GAP_SECONDS)
+            present += gap;
+        tracker_flush(&t, present, now);
+    }
     if (wfd >= 0)
         close(wfd);
     tracker_close(&t);
