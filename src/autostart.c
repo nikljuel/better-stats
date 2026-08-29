@@ -37,7 +37,10 @@ static const char handler_script[] =
     "}\n"
     "\n"
     "fmt=epub\n"
-    "case \"$1\" in *.fb2|*.fb2.zip|*.fb2.gz) fmt=fb2 ;; esac\n"
+    "case \"$1\" in\n"
+    "    *.fb2|*.fb2.zip|*.fb2.gz) fmt=fb2 ;;\n"
+    "    *.[cC][bB][zZ]) fmt=cbz ;;\n"
+    "esac\n"
     "\n"
     "reader=\"\"\n"
     "apps=$(grep -i \"^$fmt:\" \"$cfg\" 2>/dev/null | head -n 1 | cut -d: -f4)\n"
@@ -156,7 +159,7 @@ static int write_handler(void)
     return 1;
 }
 
-static const char *formats[] = {"epub", "fb2"};
+static const char *formats[] = {"epub", "fb2", "cbz"};
 #define FORMAT_COUNT (sizeof(formats) / sizeof(formats[0]))
 
 void bs_autostart_get(bs_autostart_status *out)

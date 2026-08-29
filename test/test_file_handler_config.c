@@ -83,6 +83,14 @@ int main(void)
     assert(!fb2_missing.ok);
     free_handler_config(&fb2_missing);
 
+    const char *cbz_stock =
+        "cbz:@CBZ_file:1:eink-reader.app:ICON_CBZ\n";
+    handler_config_result cbz_enabled = patch("cbz", cbz_stock, 1);
+    assert(cbz_enabled.ok && cbz_enabled.changed);
+    assert(strstr(cbz_enabled.output,
+        "cbz:@CBZ_file:1:betterstats-handler.app,eink-reader.app:ICON_CBZ"));
+    free_handler_config(&cbz_enabled);
+
     /* Chain: patch epub then fb2 */
     handler_config_result chain1 = patch("epub", fb2_stock, 1);
     assert(chain1.ok && chain1.changed);

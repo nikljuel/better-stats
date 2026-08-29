@@ -1055,8 +1055,8 @@ static void show_settings(void)
     char message[768];
     snprintf(message, sizeof(message), "%s\n\n%s: %s\n%s: %s",
              app.autostart.enabled
-                 ? tr("Tracking startet automatisch beim Öffnen eines EPUBs.",
-                      "Tracking starts automatically when an EPUB opens.")
+                 ? tr("Tracking startet automatisch bei EPUB, FB2 und CBZ.",
+                      "Tracking starts automatically for EPUB, FB2, and CBZ.")
                  : (*app.autostart.message ? app.autostart.message
                     : tr("Automatisches Tracking ist nicht aktiv.",
                          "Automatic tracking is not active.")),

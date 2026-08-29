@@ -68,6 +68,31 @@ static void make_fb2(const char *path)
     assert(fclose(f) == 0);
 }
 
+static void make_cbz(const char *path)
+{
+    static const char metadata[] = "<ComicInfo/>";
+    static const unsigned char png[] = {
+        0x89,0x50,0x4e,0x47,0x0d,0x0a,0x1a,0x0a,0x00,0x00,0x00,0x0d,
+        0x49,0x48,0x44,0x52,0x00,0x00,0x00,0x01,0x00,0x00,0x00,0x01,
+        0x08,0x06,0x00,0x00,0x00,0x1f,0x15,0xc4,0x89,0x00,0x00,0x00,
+        0x0d,0x49,0x44,0x41,0x54,0x08,0xd7,0x63,0xf8,0xcf,0xc0,0xf0,
+        0x1f,0x00,0x05,0x00,0x01,0xff,0x89,0x99,0x3d,0x1d,0x00,0x00,
+        0x00,0x00,0x49,0x45,0x4e,0x44,0xae,0x42,0x60,0x82
+    };
+    static const unsigned char jpg[] = {0xff, 0xd8, 0xff, 0xd9};
+    mz_zip_archive zip;
+    memset(&zip, 0, sizeof(zip));
+    assert(mz_zip_writer_init_file(&zip, path, 0));
+    assert(mz_zip_writer_add_mem(&zip, "ComicInfo.xml", metadata,
+                                 sizeof(metadata) - 1, MZ_DEFAULT_COMPRESSION));
+    assert(mz_zip_writer_add_mem(&zip, "001.png", png, sizeof(png),
+                                 MZ_DEFAULT_COMPRESSION));
+    assert(mz_zip_writer_add_mem(&zip, "002.jpg", jpg, sizeof(jpg),
+                                 MZ_DEFAULT_COMPRESSION));
+    assert(mz_zip_writer_finalize_archive(&zip));
+    assert(mz_zip_writer_end(&zip));
+}
+
 int main(void)
 {
     char explorer_path[128];
@@ -76,6 +101,8 @@ int main(void)
     char epub_name[64];
     char fb2_path[128];
     char fb2_name[64];
+    char cbz_path[128];
+    char cbz_name[64];
     snprintf(explorer_path, sizeof(explorer_path), "/tmp/bs_model_%ld_explorer.db",
              (long)getpid());
     snprintf(stats_path, sizeof(stats_path), "/tmp/bs_model_%ld_stats.db",
@@ -84,12 +111,16 @@ int main(void)
     snprintf(epub_path, sizeof(epub_path), "/tmp/%s", epub_name);
     snprintf(fb2_name, sizeof(fb2_name), "bs_model_%ld.fb2", (long)getpid());
     snprintf(fb2_path, sizeof(fb2_path), "/tmp/%s", fb2_name);
+    snprintf(cbz_name, sizeof(cbz_name), "bs_model_%ld.cbz", (long)getpid());
+    snprintf(cbz_path, sizeof(cbz_path), "/tmp/%s", cbz_name);
     unlink(explorer_path);
     unlink(stats_path);
     unlink(epub_path);
     unlink(fb2_path);
+    unlink(cbz_path);
     unlink("/tmp/bs_model_cache/covers/aa.png");
     unlink("/tmp/bs_model_cache/covers/dd.png");
+    unlink("/tmp/bs_model_cache/covers/ee.png");
     rmdir("/tmp/bs_model_cache/covers");
     rmdir("/tmp/bs_model_cache");
     unlink("/tmp/bs_model_firmware_covers/1bb.png");
@@ -130,6 +161,7 @@ int main(void)
     sqlite3_close(explorer);
     make_epub(epub_path);
     make_fb2(fb2_path);
+    make_cbz(cbz_path);
     FILE *firmware_cover = fopen("/tmp/bs_model_firmware_covers/1bb.png", "wb");
     assert(firmware_cover);
     assert(fputs("cover", firmware_cover) >= 0);
@@ -175,6 +207,26 @@ int main(void)
     assert(strcmp(current.cover_path, "/tmp/bs_model_cache/covers/aa.png") == 0);
     assert(strstr(current.cover_path, "/1aa.png") == NULL);
     assert(access(current.cover_path, R_OK) == 0);
+
+    /* CBZ metadata is not a page; use the first image in archive order. */
+    assert(sqlite3_open(explorer_path, &explorer) == SQLITE_OK);
+    snprintf(update, sizeof(update),
+             "UPDATE files SET fast_hash=x'ee',filename='%s' WHERE book_id=1",
+             cbz_name);
+    sql(explorer, update);
+    sqlite3_close(explorer);
+    assert(bs_load_current_book(context, &current, &error) == 0);
+    assert(strcmp(current.cover_path, "/tmp/bs_model_cache/covers/ee.png") == 0);
+    assert(access(current.cover_path, R_OK) == 0);
+    FILE *broken_cbz = fopen(cbz_path, "wb");
+    assert(broken_cbz);
+    assert(fputs("not a zip", broken_cbz) >= 0);
+    assert(fclose(broken_cbz) == 0);
+    assert(bs_load_current_book(context, &current, &error) == 0);
+    assert(strcmp(current.cover_path, "/tmp/bs_model_cache/covers/ee.png") == 0);
+    assert(unlink(current.cover_path) == 0);
+    assert(bs_load_current_book(context, &current, &error) == 0);
+    assert(current.cover_path[0] == '\0');
 
     bs_year year;
     assert(bs_load_year(context, 2024, &year, &error) == 0);
@@ -234,12 +286,14 @@ int main(void)
     bs_context_close(context);
     unlink("/tmp/bs_model_cache/covers/aa.png");
     unlink("/tmp/bs_model_cache/covers/dd.png");
+    unlink("/tmp/bs_model_cache/covers/ee.png");
     rmdir("/tmp/bs_model_cache/covers");
     rmdir("/tmp/bs_model_cache");
     unlink("/tmp/bs_model_firmware_covers/1bb.png");
     rmdir("/tmp/bs_model_firmware_covers");
     unlink(epub_path);
     unlink(fb2_path);
+    unlink(cbz_path);
     unlink(explorer_path);
     unlink(stats_path);
     puts("all stats-model tests ok");

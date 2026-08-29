@@ -284,8 +284,8 @@ Window {
             color: GlobalValues.defaultDisabledTextColor
             wrapMode: Text.Wrap
             text: settingsDialog.status.enabled === true
-                ? Tr.t("Tracking läuft automatisch, sobald ein EPUB geöffnet wird – auch beim letzten Buch nach einem Neustart.",
-                       "Tracking runs automatically when an EPUB opens, including the last book after a restart.")
+                ? Tr.t("Tracking läuft automatisch, sobald ein EPUB, FB2 oder CBZ geöffnet wird – auch beim letzten Buch nach einem Neustart.",
+                       "Tracking runs automatically when an EPUB, FB2, or CBZ opens, including the last book after a restart.")
                 : Tr.t("Tracking läuft nur, solange Better Stats geöffnet ist.",
                        "Tracking only runs while Better Stats is open.")
         }
@@ -298,11 +298,11 @@ Window {
             color: GlobalValues.defaultDisabledTextColor
             wrapMode: Text.Wrap
             text: settingsDialog.status.message === "KOReader association detected"
-                ? Tr.t("Grund: KOReader ist als EPUB-Reader eingetragen. Die Unterstützung folgt später.",
-                       "Reason: KOReader is registered as the EPUB reader. Support will follow later.")
-                : settingsDialog.status.message === "Another EPUB reader is registered"
-                ? Tr.t("Grund: Ein anderer Reader ist für EPUBs eingetragen. Better Stats lässt ihn unangetastet.",
-                       "Reason: another reader is registered for EPUBs. Better Stats leaves it alone.")
+                ? Tr.t("Grund: KOReader ist für eines der unterstützten Formate eingetragen. Die Unterstützung folgt später.",
+                       "Reason: KOReader is registered for one of the supported formats. Support will follow later.")
+                : settingsDialog.status.message === "Another reader is registered"
+                ? Tr.t("Grund: Ein anderer Reader ist für eines der unterstützten Formate eingetragen. Better Stats lässt ihn unangetastet.",
+                       "Reason: another reader is registered for one of the supported formats. Better Stats leaves it alone.")
                 : Tr.t("Grund: ", "Reason: ") + settingsDialog.status.message
         }
 

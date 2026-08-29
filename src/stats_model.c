@@ -544,6 +544,49 @@ static int extract_epub_cover(const char *epub, const char *key,
     return ok;
 }
 
+static int extract_cbz_cover(const char *cbz, const char *key,
+                             char out[BS_PATH_MAX])
+{
+    if (!file_exists(cbz) || !safe_cache_key(key))
+        return 0;
+    if (cached_cover(key, out))
+        return 1;
+
+    mz_zip_archive zip;
+    memset(&zip, 0, sizeof(zip));
+    if (!mz_zip_reader_init_file(&zip, cbz, 0))
+        return 0;
+
+    int ok = 0;
+    mz_uint i;
+    for (i = 0; i < mz_zip_reader_get_num_files(&zip); ++i) {
+        mz_zip_archive_file_stat stat;
+        if (!mz_zip_reader_file_stat(&zip, i, &stat) || stat.m_is_directory
+            || !stat.m_is_supported || stat.m_uncomp_size == 0
+            || stat.m_uncomp_size > BS_COVER_LIMIT)
+            continue;
+        const char *extension = cover_extension(stat.m_filename);
+        if (!strcmp(extension, ".img"))
+            continue;
+        size_t image_size = 0;
+        void *image = mz_zip_reader_extract_to_heap(&zip, i, &image_size, 0);
+        if (!image || !image_size) {
+            mz_free(image);
+            continue;
+        }
+        mkdir(STATS_DIR, 0755);
+        mkdir(COVER_CACHE_DIR, 0755);
+        snprintf(out, BS_PATH_MAX, COVER_CACHE_DIR "/%s%s", key, extension);
+        ok = write_cover(out, image, image_size);
+        mz_free(image);
+        break;
+    }
+    mz_zip_reader_end(&zip);
+    if (!ok)
+        out[0] = '\0';
+    return ok;
+}
+
 static size_t base64_decode(const char *src, size_t src_len,
                             unsigned char *dst, size_t dst_cap)
 {
@@ -787,6 +830,9 @@ static void resolve_cover(sqlite3 *explorer, sqlite3 *stats, const char *title,
                     && (strstr(path, ".fb2.zip") || strstr(path, ".fb2.gz"));
                 if (is_fb2 || is_fb2z) {
                     if (extract_fb2_cover(path, key, out))
+                        break;
+                } else if (ext && !strcasecmp(ext, ".cbz")) {
+                    if (extract_cbz_cover(path, key, out))
                         break;
                 } else {
                     if (extract_epub_cover(path, key, out))

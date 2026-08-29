@@ -31,8 +31,9 @@ kind of stats screen you'd expect from Kobo or Fable.
   not reach its ready state. Hard-float devices go directly to InkView.
 - **Native look** — Qt uses the firmware's `com.pocketbook.controls`; the fallback
   draws with InkView fonts, dialogs and screen updates.
-- **Real covers** — extracted straight from your EPUBs (the firmware's cover
-  cache is sometimes wrong for sideloaded/Calibre books).
+- **Real covers** — extracted straight from EPUB and FB2 files, or from the
+  first image in a CBZ (the firmware's cover cache is sometimes wrong for
+  sideloaded/Calibre books).
 - **Bilingual** — German by default, English automatically when the device
   language isn't German.
 - **Automatic tracking** — starts before the stock reader opens a book,
@@ -51,12 +52,12 @@ Better Stats reconstructs a best-effort estimate of the last session per book on
 the next launch. The firmware does not retain enough timestamps for an exact
 reconstruction, so short sessions or pauses can still be missed.
 
-Autostart installs a small EPUB file handler: a shell script that backgrounds the daemon and then `exec`s
-the stock reader, so it *becomes* the reader in the same process and task slot
-the firmware already created. If the daemon fails to start for any reason the
-`exec` still runs, so the tracking hook can never keep a book from opening. PDF
-and other file types are unchanged. KOReader associations are detected but
-deliberately left untouched for now.
+Autostart installs a small EPUB/FB2/CBZ file handler: a shell script that
+backgrounds the daemon and then `exec`s the stock reader, so it *becomes* the
+reader in the same process and task slot the firmware already created. If the
+daemon fails to start for any reason the `exec` still runs, so the tracking hook
+can never keep a book from opening. PDF and other file types are unchanged.
+KOReader associations are detected but deliberately left untouched for now.
 
 Note that the `eink-reader_with_<engine>.app` names in `extensions.cfg` are
 virtual — only `/ebrmain/bin/eink-reader.app` exists on disk — so the handler
@@ -73,7 +74,7 @@ automatically at app launch when enabled by silently connecting to a configured
 Wi-Fi network, or when **Check now** is selected in Settings. Better Stats only
 **reads** the
 firmware database. It writes its own stats database and cover cache under
-`system/pbreadstats/`; it also creates a marked EPUB handler under `system/bin/`
+`system/pbreadstats/`; it also creates a marked book handler under `system/bin/`
 and updates the user `extensions.cfg` (with a backup before the first change).
 
 ## Install
@@ -100,14 +101,13 @@ On soft-float devices it starts Qt first and falls back to InkView only if Qt
 cannot create its root view. Startup decisions and errors are written to
 `system/pbreadstats/app.log` (rotated at 256 KiB).
 
-On first launch Better Stats also sets up EPUB autostart, because the daemon is
-otherwise only running while the app itself is open. It writes a marked handler
-to `system/bin/` and puts it ahead of the stock reader in the user
+On first launch Better Stats also sets up EPUB/FB2/CBZ autostart, because the
+daemon is otherwise only running while the app itself is open. It writes a
+marked handler to `system/bin/` and puts it ahead of the stock reader in the user
 `extensions.cfg`, backing that file up first
 (`extensions.cfg.betterstats-backup`). PDF and other file types are untouched,
-and any reader that already holds the first slot for EPUBs -- KOReader or
-anything else -- is left alone, so it keeps opening your books. Reboot
-the reader once for the change to take effect.
+and existing KOReader associations are left alone. Reboot the reader once for
+the change to take effect.
 
 When the Qt UI starts, it registers a custom launcher icon by adding one entry
 to `system/config/desktop/view.json` and saving a backup next to it

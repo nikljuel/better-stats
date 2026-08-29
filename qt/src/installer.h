@@ -11,12 +11,12 @@ struct AutostartStatus {
 /* Registers the app's launcher icon on first run, so distribution stays a
  * single-file copy: the icon travels inside the binary as a Qt resource and is
  * written to the device plus wired into the launcher config on first launch.
- * Also puts the EPUB autostart handler in place -- see setAutostartEnabled. */
+ * Also puts the book autostart handler in place -- see setAutostartEnabled. */
 void ensureRegistered();
 
-/* EPUB proxy setup, applied automatically on launch: without it the daemon only
- * runs while the app is open, which is not a useful mode. All writes stay below
- * /mnt/ext1 and preserve the firmware's existing handler list; an existing
- * KOReader or third-party EPUB association is left alone. */
+/* EPUB/FB2/CBZ proxy setup, applied automatically on launch: without it the
+ * daemon only runs while the app is open, which is not a useful mode. All
+ * writes stay below /mnt/ext1 and preserve the firmware's existing handler
+ * list; an existing KOReader association is left alone. */
 AutostartStatus autostartStatus();
 AutostartStatus setAutostartEnabled(bool enabled);

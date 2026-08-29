@@ -101,7 +101,7 @@ Adjust `DEVICE` at the top of the `Makefile` to your reader's mount point
 make test
 ```
 
-Builds and runs the tracker, EPUB-handler parser, shared statistics model,
+Builds and runs the tracker, file-handler parser, shared statistics model,
 updater release parser/settings and dispatcher/activation checks on the host.
 No device is needed.
 
@@ -134,7 +134,7 @@ tools/          icon generator and hard-float builder image
 ## How the pieces fit
 
 - `src/*.c` is plain C shared by both UIs. It derives sessions, aggregates every
-  tab, extracts EPUB covers, configures autostart, updates releases and runs the
+  tab, extracts book covers, configures autostart, updates releases and runs the
   daemon.
 - `qt/src/main.cpp` boots Qt and creates a ready marker after the QML root loads.
   `stats_bridge.cpp` exposes the shared statistics and updater to QML.
