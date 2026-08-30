@@ -101,9 +101,9 @@ Adjust `DEVICE` at the top of the `Makefile` to your reader's mount point
 make test
 ```
 
-Builds and runs the tracker, file-handler parser, shared statistics model,
-updater release parser/settings and dispatcher/activation checks on the host.
-No device is needed.
+Builds and runs the tracker, file-handler parser and Autostart preference,
+shared statistics model, updater release parser/settings and
+dispatcher/activation checks on the host. No device is needed.
 
 ## Icons
 
@@ -138,8 +138,8 @@ tools/          icon generator and hard-float builder image
   daemon.
 - `qt/src/main.cpp` boots Qt and creates a ready marker after the QML root loads.
   `stats_bridge.cpp` exposes the shared statistics and updater to QML.
-- `inkview/main.c` renders the same four tabs directly through InkView and also
-  supplies the daemon entry point for both ABIs.
+- `inkview/main.c` renders the same four tabs and settings directly through
+  InkView and also supplies the daemon entry point for both ABIs.
 - `packaging/BetterStats.app` selects the ABI, starts tracking, attempts Qt and
   falls back to InkView when no ready marker appears.
 - `qt/qml/` is the UI. Text goes through the `Tr` singleton for DE/EN; all

@@ -62,8 +62,10 @@ KOReader associations are detected but deliberately left untouched for now.
 On some PocketBook firmware the handler prevents G-sensor rotation inside the
 reader. Turning Autostart off in Settings removes the handler; open Better Stats
 once after each reboot to start tracking manually while keeping rotation. The
-reader must be restarted once after turning Autostart off because the firmware
-caches file-handler assignments. Turning it on needs no immediate restart.
+app offers to restart the reader after turning Autostart off because the
+firmware caches file-handler assignments. Turning it on needs no immediate
+restart: the open app already started the daemon, and the handler takes over
+after the next normal reboot.
 
 Note that the `eink-reader_with_<engine>.app` names in `extensions.cfg` are
 virtual — only `/ebrmain/bin/eink-reader.app` exists on disk — so the handler
@@ -78,10 +80,10 @@ Reading data stays on the device. There is no account and no telemetry. Network
 access is only used to check and download releases from this GitHub repository:
 automatically at app launch when enabled by silently connecting to a configured
 Wi-Fi network, or when **Check now** is selected in Settings. Better Stats only
-**reads** the
-firmware database. It writes its own stats database and cover cache under
-`system/pbreadstats/`; it also creates a marked book handler under `system/bin/`
-and updates the user `extensions.cfg` (with a backup before the first change).
+**reads** the firmware database. It writes its own stats database and cover cache under
+`system/pbreadstats/`. While Autostart is enabled, it also creates a marked book
+handler under `system/bin/` and updates the user `extensions.cfg` (with a backup
+before the first change).
 
 ## Install
 
@@ -113,8 +115,10 @@ marked handler to `system/bin/` and puts it ahead of the stock reader in the use
 `extensions.cfg`, backing that file up first
 (`extensions.cfg.betterstats-backup`). PDF and other file types are untouched,
 and existing KOReader associations are left alone. Autostart is enabled by
-default and can be disabled persistently in Settings. Reboot the reader once
-after installation for the initial change to take effect.
+default and can be disabled persistently in Settings. No immediate reboot is
+needed after installation or after enabling it: opening Better Stats has already
+started the daemon, and the handler is ready for the next normal reboot. Turning
+Autostart off shows a restart prompt so the firmware drops its cached handler.
 
 When the Qt UI starts, it registers a custom launcher icon by adding one entry
 to `system/config/desktop/view.json` and saving a backup next to it
@@ -123,14 +127,17 @@ launch when a new version ships an updated image. It appears after the reader
 rescans its apps (reboot if needed). InkView-only devices keep the default
 user-app icon.
 
-To uninstall, delete `applications/BetterStats.app` and
-`applications/betterstats/`. Books keep opening either way — the handler skips a
-missing app and execs the stock reader regardless — but
-to remove every trace, also delete `system/bin/betterstats-handler.app`, restore
-`system/config/extensions.cfg` from `extensions.cfg.betterstats-backup`, and
-restore `view.json` from its backup (or drop the `U_betterstats` entry). Your
-statistics live in `system/pbreadstats/` and are only removed if you delete that
-folder.
+For a clean uninstall, first turn Autostart off in Settings and choose
+**Restart now**. Then delete `applications/BetterStats.app` and
+`applications/betterstats/`. The toggle removes Better Stats from
+`system/config/extensions.cfg` without overwriting other reader associations and
+deletes `system/bin/betterstats-handler.app`. If the Qt UI registered its custom
+icon, remove the `U_betterstats` entry from `system/config/desktop/view.json` and
+the two `applications/icons/betterstats*.bmp` files. The two
+`*.betterstats-backup` files can then be deleted; restore one only if you are sure
+the corresponding firmware configuration has not gained unrelated changes
+since installation. Reading statistics and settings remain in
+`system/pbreadstats/` until that folder is deleted.
 
 ## Building
 
