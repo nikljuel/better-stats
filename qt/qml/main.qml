@@ -282,14 +282,35 @@ Window {
 
         title: Tr.t("Neustart erforderlich", "Restart required")
 
-        StyledText {
+        Row {
             width: parent.width
-            styledFont: FontStyles.BodyL
-            color: GlobalValues.defaultTextColor
-            wrapMode: Text.Wrap
-            text: Tr.t(
-                "Autostart ist ausgeschaltet. Starte den Reader neu, damit Bücher direkt im Stock-Reader geöffnet werden und der G-Sensor wieder funktioniert.",
-                "Autostart is off. Restart the reader so books open directly in the stock reader and G-sensor rotation works again.")
+            spacing: Global.dp(16)
+
+            Rectangle {
+                width: Global.dp(44)
+                height: width
+                radius: width / 2
+                color: "transparent"
+                border.width: GlobalValues.dialogBorderWidth
+                border.color: GlobalValues.defaultTextColor
+
+                StyledText {
+                    anchors.centerIn: parent
+                    styledFont: FontStyles.Heading3
+                    color: GlobalValues.defaultTextColor
+                    text: "?"
+                }
+            }
+
+            StyledText {
+                width: parent.width - Global.dp(60)
+                styledFont: FontStyles.Body
+                color: GlobalValues.defaultTextColor
+                wrapMode: Text.Wrap
+                text: Tr.t(
+                    "Autostart ist ausgeschaltet. Starte den Reader neu, damit Bücher direkt im Stock-Reader geöffnet werden und der G-Sensor wieder funktioniert.",
+                    "Autostart is off. Restart the reader so books open directly in the stock reader and G-sensor rotation works again.")
+            }
         }
 
         Row {

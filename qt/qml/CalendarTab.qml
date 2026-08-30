@@ -8,6 +8,11 @@ Item {
     property int year: new Date().getFullYear()
     property int month: new Date().getMonth() + 1
     property var m: ({ ndays: 30, firstWeekday: 0, days: [], books: [] })
+    readonly property int thisYear: new Date().getFullYear()
+    readonly property int thisMonth: new Date().getMonth() + 1
+    readonly property bool canAdvance: year < thisYear
+                                       || (year === thisYear
+                                           && month < thisMonth)
 
     readonly property var monthNames: Tr.monthsFull
 
@@ -16,6 +21,8 @@ Item {
     }
 
     function shiftMonth(delta) {
+        if (delta > 0 && !canAdvance)
+            return;
         var mo = month + delta;
         var y = year;
         if (mo < 1) { mo = 12; y--; }
@@ -62,6 +69,7 @@ Item {
             anchors.rightMargin: tab.sideMargin
             styledFont: FontStyles.Heading3
             color: GlobalValues.defaultTextColor
+            opacity: tab.canAdvance ? 1.0 : 0.3
             text: "›"
         }
 
@@ -78,6 +86,7 @@ Item {
             anchors.top: parent.top
             anchors.bottom: parent.bottom
             width: parent.width / 3
+            enabled: tab.canAdvance
             onClicked: tab.shiftMonth(1)
         }
     }

@@ -136,7 +136,10 @@ Item {
                             height: Global.dp(10)
                             minValue: 0
                             maxValue: 100
-                            value: tab.book.percent || 0
+                            value: tab.book.percent > 0 && width > 0
+                                   ? Math.max(tab.book.percent,
+                                              maxValue * height / width)
+                                   : 0
                         }
 
                         StyledText {

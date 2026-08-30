@@ -193,6 +193,15 @@ static void set_font(ifont *font, int color)
     SetFont(font, color);
 }
 
+static void draw_dialog_border(int x, int y, int w, int h)
+{
+    int border = imax(2, dp(2));
+    FillArea(x, y, w, border, BLACK);
+    FillArea(x, y + h - border, w, border, BLACK);
+    FillArea(x, y, border, h, BLACK);
+    FillArea(x + w - border, y, border, h, BLACK);
+}
+
 static void text(int x, int y, int width, int height, const char *value,
                  int flags)
 {
@@ -442,9 +451,11 @@ static void draw_overview(void)
         int bar_h = dp(10);
         fill_round_rect(info_x, bar_y, info_w, bar_h, bar_h / 2, 0xeeeeee);
         int progress_w = info_w * cur->percent / 100;
-        if (progress_w > 0)
+        if (progress_w > 0) {
+            progress_w = imax(progress_w, bar_h);
             fill_round_rect(info_x, bar_y, progress_w, bar_h,
-                            imin(bar_h / 2, progress_w / 2), BLACK);
+                            bar_h / 2, BLACK);
+        }
 
         char formatted[32];
         format_time(cur->book_seconds, formatted);
@@ -662,6 +673,13 @@ static int calendar_grid_top(void)
     return content_top() + dp(58) + dp(30) + dp(6);
 }
 
+static int calendar_can_advance(void)
+{
+    return app.calendar_year < app.real_year
+        || (app.calendar_year == app.real_year
+            && app.calendar_month < app.real_month);
+}
+
 static void draw_calendar(void)
 {
     int margin = dp(28);
@@ -676,8 +694,9 @@ static void draw_calendar(void)
     text(0, top, app.width, month_h, title, ALIGN_CENTER | VALIGN_MIDDLE | DOTS);
     set_font(app.heading, BLACK);
     DrawSymbol(margin, top + month_h / 2 - dp(9), ARROW_LEFT);
-    DrawSymbol(app.width - margin - dp(18), top + month_h / 2 - dp(9),
-               ARROW_RIGHT);
+    if (calendar_can_advance())
+        DrawSymbol(app.width - margin - dp(18), top + month_h / 2 - dp(9),
+                   ARROW_RIGHT);
 
     int cell_w = (app.width - margin * 2) / 7;
     int i;
@@ -866,7 +885,7 @@ static void draw_detail_dialog(void)
     DimArea(0, content_top(), app.width,
             app.content_height - content_top(), 0x777777);
     FillArea(layout.x, layout.y, layout.w, layout.h, WHITE);
-    DrawRect(layout.x, layout.y, layout.w, layout.h, BLACK);
+    draw_dialog_border(layout.x, layout.y, layout.w, layout.h);
 
     char title[128];
     if (app.dialog == DIALOG_DAY) {
@@ -983,7 +1002,7 @@ static void draw_release_dialog(void)
 
     DimArea(0, 0, app.width, app.content_height, 0x777777);
     FillArea(layout.x, layout.y, layout.w, layout.h, WHITE);
-    DrawRect(layout.x, layout.y, layout.w, layout.h, BLACK);
+    draw_dialog_border(layout.x, layout.y, layout.w, layout.h);
 
     char title[128];
     snprintf(title, sizeof(title),
@@ -1075,7 +1094,7 @@ static void draw_settings_dialog(void)
     DimArea(0, content_top(), app.width,
             app.content_height - content_top(), 0x777777);
     FillArea(layout.x, layout.y, layout.w, layout.h, WHITE);
-    DrawRect(layout.x, layout.y, layout.w, layout.h, BLACK);
+    draw_dialog_border(layout.x, layout.y, layout.w, layout.h);
 
     set_font(app.heading, BLACK);
     text(inner_x, layout.y + dp(16),
@@ -1211,6 +1230,8 @@ static void draw(void)
 
 static void shift_month(int delta)
 {
+    if (delta > 0 && !calendar_can_advance())
+        return;
     if (app.loaded_tab == TAB_CALENDAR) {
         bs_month_free(&app.month);
         app.loaded_tab = -1;
