@@ -28,6 +28,8 @@ public:
     Q_INVOKABLE QVariantMap year(int y);
     Q_INVOKABLE QVariantMap yearBooks(int y);
     Q_INVOKABLE QVariantMap autostartStatus();
+    Q_INVOKABLE QVariantMap setAutostartEnabled(bool enabled);
+    Q_INVOKABLE void rebootDevice();
     Q_INVOKABLE void setAutomaticUpdates(bool enabled);
     Q_INVOKABLE void checkForUpdates();
     Q_INVOKABLE void installUpdate();

@@ -277,6 +277,66 @@ Window {
     }
 
     PanelDialog {
+        id: restartDialog
+        z: 11
+
+        title: Tr.t("Neustart erforderlich", "Restart required")
+
+        StyledText {
+            width: parent.width
+            styledFont: FontStyles.BodyL
+            color: GlobalValues.defaultTextColor
+            wrapMode: Text.Wrap
+            text: Tr.t(
+                "Autostart ist ausgeschaltet. Starte den Reader neu, damit Bücher direkt im Stock-Reader geöffnet werden und der G-Sensor wieder funktioniert.",
+                "Autostart is off. Restart the reader so books open directly in the stock reader and G-sensor rotation works again.")
+        }
+
+        Row {
+            width: parent.width
+            spacing: Global.dp(12)
+
+            Rectangle {
+                width: (parent.width - parent.spacing) / 2
+                height: Global.dp(48)
+                color: GlobalValues.defaultTextColor
+
+                StyledText {
+                    anchors.centerIn: parent
+                    styledFont: FontStyles.BodyLBold
+                    color: GlobalValues.defaultBackgroundColor
+                    text: Tr.t("Jetzt neu starten", "Restart now")
+                }
+
+                MouseArea {
+                    anchors.fill: parent
+                    onClicked: stats.rebootDevice()
+                }
+            }
+
+            Rectangle {
+                width: (parent.width - parent.spacing) / 2
+                height: Global.dp(48)
+                color: GlobalValues.defaultBackgroundColor
+                border.width: GlobalValues.dialogBorderWidth
+                border.color: GlobalValues.defaultTextColor
+
+                StyledText {
+                    anchors.centerIn: parent
+                    styledFont: FontStyles.BodyLBold
+                    color: GlobalValues.defaultTextColor
+                    text: Tr.t("Später", "Later")
+                }
+
+                MouseArea {
+                    anchors.fill: parent
+                    onClicked: restartDialog.dismiss()
+                }
+            }
+        }
+    }
+
+    PanelDialog {
         id: settingsDialog
 
         title: Tr.t("Einstellungen", "Settings")
@@ -327,16 +387,34 @@ Window {
             text: Tr.t("Tracking", "Tracking")
         }
 
+        SettingsBitmapTextSwitcher {
+            width: parent.width
+            height: GlobalValues.defaultListItemHeight
+            title: Tr.t("Autostart", "Autostart")
+            switch_value: settingsDialog.status.enabled === true
+            enabled: settingsDialog.status.available === true
+                     || settingsDialog.status.enabled === true
+            opacity: enabled ? 1 : 0.45
+
+            onAction: {
+                var wanted = !settingsDialog.status.enabled
+                settingsDialog.status = stats.setAutostartEnabled(wanted)
+                if (settingsDialog.status.enabled === wanted && !wanted) {
+                    restartDialog.visible = true
+                }
+            }
+        }
+
         StyledText {
             width: parent.width
             styledFont: FontStyles.BodyS
             color: GlobalValues.defaultDisabledTextColor
             wrapMode: Text.Wrap
             text: settingsDialog.status.enabled === true
-                ? Tr.t("Tracking läuft automatisch, sobald ein EPUB, FB2 oder CBZ geöffnet wird – auch beim letzten Buch nach einem Neustart.",
-                       "Tracking runs automatically when an EPUB, FB2, or CBZ opens, including the last book after a restart.")
-                : Tr.t("Tracking läuft nur, solange Better Stats geöffnet ist.",
-                       "Tracking only runs while Better Stats is open.")
+                ? Tr.t("Tracking startet automatisch bei EPUB, FB2 und CBZ. Auf manchen Geräten kann dadurch die G-Sensor-Drehung im Reader ausfallen.",
+                       "Tracking starts automatically for EPUB, FB2, and CBZ. On some devices this can disable G-sensor rotation in the reader.")
+                : Tr.t("Öffne Better Stats einmal nach jedem Neustart, um Tracking zu starten. Bücher öffnen direkt im Stock-Reader und die G-Sensor-Drehung bleibt verfügbar.",
+                       "Open Better Stats once after each restart to start tracking. Books open directly in the stock reader and G-sensor rotation remains available.")
         }
 
         StyledText {
@@ -368,66 +446,23 @@ Window {
             text: Tr.t("Updates", "Updates")
         }
 
-        Item {
+        SettingsBitmapTextSwitcher {
             width: parent.width
-            height: Global.dp(64)
+            height: GlobalValues.defaultListItemHeight
+            title: Tr.t("Automatisch nach Updates suchen",
+                        "Check for updates automatically")
+            switch_value: stats.automaticUpdates
+            onAction: stats.setAutomaticUpdates(!stats.automaticUpdates)
+        }
 
-            Column {
-                anchors.left: parent.left
-                anchors.right: updateSwitch.left
-                anchors.rightMargin: Global.dp(12)
-                anchors.verticalCenter: parent.verticalCenter
-                spacing: Global.dp(4)
-
-                StyledText {
-                    width: parent.width
-                    styledFont: FontStyles.BodyL
-                    color: GlobalValues.defaultTextColor
-                    text: Tr.t("Automatisch nach Updates suchen",
-                               "Check for updates automatically")
-                }
-
-                StyledText {
-                    width: parent.width
-                    styledFont: FontStyles.BodyS
-                    color: GlobalValues.defaultDisabledTextColor
-                    wrapMode: Text.Wrap
-                    text: Tr.t(
-                        "Prüft beim Start über bekanntes WLAN; Installation nach Bestätigung.",
-                        "Checks on launch over known Wi-Fi; installs after confirmation.")
-                }
-            }
-
-            Rectangle {
-                id: updateSwitch
-                anchors.right: parent.right
-                anchors.verticalCenter: parent.verticalCenter
-                width: Global.dp(52)
-                height: Global.dp(30)
-                radius: height / 2
-                color: stats.automaticUpdates
-                       ? GlobalValues.defaultTextColor
-                       : GlobalValues.defaultBackgroundColor
-                border.width: GlobalValues.dialogBorderWidth
-                border.color: GlobalValues.defaultTextColor
-
-                Rectangle {
-                    anchors.verticalCenter: parent.verticalCenter
-                    x: stats.automaticUpdates
-                       ? parent.width - width - Global.dp(4) : Global.dp(4)
-                    width: Global.dp(20)
-                    height: width
-                    radius: width / 2
-                    color: stats.automaticUpdates
-                           ? GlobalValues.defaultBackgroundColor
-                           : GlobalValues.defaultTextColor
-                }
-            }
-
-            MouseArea {
-                anchors.fill: parent
-                onClicked: stats.setAutomaticUpdates(!stats.automaticUpdates)
-            }
+        StyledText {
+            width: parent.width
+            styledFont: FontStyles.BodyS
+            color: GlobalValues.defaultDisabledTextColor
+            wrapMode: Text.Wrap
+            text: Tr.t(
+                "Prüft beim Start über bekanntes WLAN; Installation nach Bestätigung.",
+                "Checks on launch over known Wi-Fi; installs after confirmation.")
         }
 
         StyledText {

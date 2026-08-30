@@ -37,7 +37,8 @@ kind of stats screen you'd expect from Kobo or Fable.
 - **Bilingual** — German by default, English automatically when the device
   language isn't German.
 - **Automatic tracking** — starts before the stock reader opens a book,
-  including when the firmware restores the last book after a reboot.
+  including when the firmware restores the last book after a reboot; it can be
+  switched off on devices where the handler interferes with G-sensor rotation.
 - **Updates over Wi-Fi** — installs stable GitHub releases without another USB
   copy; automatic updates are enabled by default and can be switched off.
 
@@ -58,6 +59,11 @@ reader in the same process and task slot the firmware already created. If the
 daemon fails to start for any reason the `exec` still runs, so the tracking hook
 can never keep a book from opening. PDF and other file types are unchanged.
 KOReader associations are detected but deliberately left untouched for now.
+On some PocketBook firmware the handler prevents G-sensor rotation inside the
+reader. Turning Autostart off in Settings removes the handler; open Better Stats
+once after each reboot to start tracking manually while keeping rotation. The
+reader must be restarted once after turning Autostart off because the firmware
+caches file-handler assignments. Turning it on needs no immediate restart.
 
 Note that the `eink-reader_with_<engine>.app` names in `extensions.cfg` are
 virtual — only `/ebrmain/bin/eink-reader.app` exists on disk — so the handler
@@ -102,12 +108,13 @@ cannot create its root view. Startup decisions and errors are written to
 `system/pbreadstats/app.log` (rotated at 256 KiB).
 
 On first launch Better Stats also sets up EPUB/FB2/CBZ autostart, because the
-daemon is otherwise only running while the app itself is open. It writes a
+daemon otherwise does not start automatically after a reboot. It writes a
 marked handler to `system/bin/` and puts it ahead of the stock reader in the user
 `extensions.cfg`, backing that file up first
 (`extensions.cfg.betterstats-backup`). PDF and other file types are untouched,
-and existing KOReader associations are left alone. Reboot the reader once for
-the change to take effect.
+and existing KOReader associations are left alone. Autostart is enabled by
+default and can be disabled persistently in Settings. Reboot the reader once
+after installation for the initial change to take effect.
 
 When the Qt UI starts, it registers a custom launcher icon by adding one entry
 to `system/config/desktop/view.json` and saving a backup next to it

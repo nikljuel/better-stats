@@ -1,5 +1,6 @@
 #include "autostart.h"
 
+#include "daemon.h"
 #include "file_handler_config.h"
 
 #include <errno.h>
@@ -10,13 +11,24 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+#ifndef SYSTEM_EXTENSIONS
 #define SYSTEM_EXTENSIONS "/ebrmain/config/extensions.cfg"
+#endif
+#ifndef USER_EXTENSIONS
 #define USER_EXTENSIONS "/mnt/ext1/system/config/extensions.cfg"
+#endif
+#ifndef EXTENSIONS_BACKUP
 #define EXTENSIONS_BACKUP "/mnt/ext1/system/config/extensions.cfg.betterstats-backup"
+#endif
+#ifndef HANDLER_DIR
 #define HANDLER_DIR "/mnt/ext1/system/bin"
+#endif
 #define HANDLER_NAME "betterstats-handler.app"
+#ifndef HANDLER_PATH
 #define HANDLER_PATH HANDLER_DIR "/" HANDLER_NAME
+#endif
 #define HANDLER_MARKER "# Better Stats autostart"
+#define AUTOSTART_DISABLED STATS_DIR "/autostart-disabled"
 #define MAX_CONFIG_SIZE (1024U * 1024U)
 
 static const char handler_script[] =
@@ -159,6 +171,25 @@ static int write_handler(void)
     return 1;
 }
 
+static int preference_enabled(void)
+{
+    return access(AUTOSTART_DISABLED, F_OK) != 0;
+}
+
+static int write_preference(int enabled)
+{
+    if (enabled)
+        return unlink(AUTOSTART_DISABLED) == 0 || errno == ENOENT;
+    mkdir(STATS_DIR, 0755);
+    FILE *file = fopen(AUTOSTART_DISABLED, "wb");
+    if (!file)
+        return 0;
+    if (fclose(file) == 0)
+        return 1;
+    unlink(AUTOSTART_DISABLED);
+    return 0;
+}
+
 static const char *formats[] = {"epub", "fb2", "cbz"};
 #define FORMAT_COUNT (sizeof(formats) / sizeof(formats[0]))
 
@@ -208,17 +239,18 @@ void bs_autostart_get(bs_autostart_status *out)
         message(out, "Better Stats handler needs updating");
 }
 
-void bs_autostart_set(int enabled, bs_autostart_status *out)
+static int apply_autostart(int enabled, bs_autostart_status *out)
 {
     char *original = NULL;
     size_t original_size = 0;
     char *handler = NULL;
     size_t handler_size = 0;
+    const char *failure = NULL;
     handler_config_result results[FORMAT_COUNT];
     memset(out, 0, sizeof(*out));
     if (!active_config(&original, &original_size)) {
         message(out, "Handler configuration is unavailable");
-        return;
+        return 0;
     }
     const char *input = original;
     size_t input_size = original_size;
@@ -235,28 +267,28 @@ void bs_autostart_set(int enabled, bs_autostart_status *out)
         }
     }
     if (enabled && any_koreader) {
-        message(out, "KOReader association detected");
+        failure = "KOReader association detected";
         goto cleanup;
     }
     int handler_exists = installed_handler(&handler, &handler_size);
     int owned = handler_exists && contains(handler, handler_size, "# Better Stats");
     free(handler);
     if (enabled && handler_exists && !owned) {
-        message(out, "Handler path is already in use");
+        failure = "Handler path is already in use";
         goto cleanup;
     }
     if (enabled && !write_handler()) {
-        message(out, "Could not install handler");
+        failure = "Could not install handler";
         goto cleanup;
     }
     if (any_changed) {
         if (!exists(EXTENSIONS_BACKUP)
             && !write_file(EXTENSIONS_BACKUP, original, original_size)) {
-            message(out, "Could not create extensions.cfg backup");
+            failure = "Could not create extensions.cfg backup";
             goto cleanup;
         }
         if (!write_file(USER_EXTENSIONS, input, input_size)) {
-            message(out, "Could not write extensions.cfg");
+            failure = "Could not write extensions.cfg";
             goto cleanup;
         }
     }
@@ -266,9 +298,27 @@ void bs_autostart_set(int enabled, bs_autostart_status *out)
     for (i = 0; i < FORMAT_COUNT; ++i)
         free_handler_config(&results[i]);
     bs_autostart_get(out);
-    return;
+    return out->enabled == !!enabled;
 cleanup:
     free(original);
     for (i = 0; i < FORMAT_COUNT; ++i)
         free_handler_config(&results[i]);
+    bs_autostart_get(out);
+    message(out, failure);
+    return 0;
+}
+
+void bs_autostart_set(int enabled, bs_autostart_status *out)
+{
+    if (!write_preference(enabled)) {
+        bs_autostart_get(out);
+        message(out, "Could not save autostart setting");
+        return;
+    }
+    apply_autostart(enabled, out);
+}
+
+int bs_autostart_prepare(bs_autostart_status *out)
+{
+    return apply_autostart(preference_enabled(), out);
 }

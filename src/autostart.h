@@ -13,6 +13,7 @@ typedef struct {
 
 void bs_autostart_get(bs_autostart_status *out);
 void bs_autostart_set(int enabled, bs_autostart_status *out);
+int bs_autostart_prepare(bs_autostart_status *out);
 
 #ifdef __cplusplus
 }

@@ -34,6 +34,15 @@ test:
 	cc $(CFLAGS) -Isrc -o build/test_file_handler_config \
 	  test/test_file_handler_config.c src/file_handler_config.c
 	./build/test_file_handler_config
+	cc $(CFLAGS) -Isrc \
+	  -DSTATS_DIR='"/tmp/bs_autostart_test/stats"' \
+	  -DSYSTEM_EXTENSIONS='"/tmp/bs_autostart_test/config/system-extensions.cfg"' \
+	  -DUSER_EXTENSIONS='"/tmp/bs_autostart_test/config/extensions.cfg"' \
+	  -DEXTENSIONS_BACKUP='"/tmp/bs_autostart_test/config/extensions.cfg.backup"' \
+	  -DHANDLER_DIR='"/tmp/bs_autostart_test/bin"' \
+	  -o build/test_autostart test/test_autostart.c \
+	  src/autostart.c src/file_handler_config.c
+	./build/test_autostart
 	cc $(CFLAGS) -DSTATS_DIR='"/tmp/bs_model_cache"' \
 	  -DCOVER_DIR='"/tmp/bs_model_firmware_covers"' \
 	  -Isrc -Iqt/third_party -o build/test_stats_model \

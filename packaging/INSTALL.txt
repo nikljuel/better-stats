@@ -7,4 +7,8 @@ Better Stats - Installation
 
 On first launch the launcher icon and automatic tracking
 are set up. Reboot the reader to activate both.
+If automatic tracking interferes with G-sensor rotation,
+turn Autostart off in Settings and open Better Stats once
+after each reboot to start tracking manually. Restart the
+reader once after turning Autostart off.
 Future updates install from Settings > Check now.

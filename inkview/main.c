@@ -21,7 +21,13 @@
 #pragma weak SetPanelType
 
 enum { TAB_OVERVIEW, TAB_STREAK, TAB_CALENDAR, TAB_YEAR, TAB_COUNT };
-enum { DIALOG_NONE, DIALOG_DAY, DIALOG_MONTH, DIALOG_RELEASE_NOTES };
+enum {
+    DIALOG_NONE,
+    DIALOG_DAY,
+    DIALOG_MONTH,
+    DIALOG_RELEASE_NOTES,
+    DIALOG_SETTINGS
+};
 
 typedef struct {
     bs_context *context;
@@ -95,6 +101,22 @@ typedef struct {
     int button_w;
     int button_h;
 } release_dialog_layout;
+
+typedef struct {
+    int x;
+    int y;
+    int w;
+    int h;
+    int close_x;
+    int close_y;
+    int close_w;
+    int close_h;
+    int autostart_y;
+    int update_y;
+    int row_h;
+    int check_y;
+    int check_h;
+} settings_dialog_layout;
 
 typedef struct {
     char path[BS_PATH_MAX];
@@ -996,6 +1018,115 @@ static void draw_release_dialog(void)
          ALIGN_CENTER | VALIGN_MIDDLE);
 }
 
+static settings_dialog_layout settings_layout(void)
+{
+    settings_dialog_layout out;
+    int margin = dp(20);
+    int available = app.content_height - content_top();
+    out.w = imin(dp(560), app.width - margin * 2);
+    out.h = imin(dp(520), available - dp(20));
+    out.x = (app.width - out.w) / 2;
+    out.y = content_top() + (available - out.h) / 2;
+    out.close_w = dp(48);
+    out.close_h = dp(48);
+    out.close_x = out.x + out.w - dp(20) - out.close_w;
+    out.close_y = out.y + dp(10);
+    out.row_h = dp(56);
+    out.autostart_y = out.y + dp(96);
+    out.update_y = out.y + dp(310);
+    out.check_y = out.y + out.h - dp(68);
+    out.check_h = dp(48);
+    return out;
+}
+
+static void draw_toggle(int x, int y, int enabled, int value)
+{
+    int width = dp(52);
+    int height = dp(28);
+    int radius = height / 2;
+    int track = enabled ? (value ? BLACK : LGRAY) : 0xdddddd;
+    fill_round_rect(x, y, width, height, radius, track);
+    fill_circle(value ? x + width - radius : x + radius,
+                y + radius, radius - dp(3), WHITE);
+}
+
+static void draw_settings_dialog(void)
+{
+    settings_dialog_layout layout = settings_layout();
+    int inner_x = layout.x + dp(20);
+    int inner_w = layout.w - dp(40);
+    int toggle_w = dp(52);
+    int enabled = app.autostart.available || app.autostart.enabled;
+    char version[160];
+
+    DimArea(0, content_top(), app.width,
+            app.content_height - content_top(), 0x777777);
+    FillArea(layout.x, layout.y, layout.w, layout.h, WHITE);
+    DrawRect(layout.x, layout.y, layout.w, layout.h, BLACK);
+
+    set_font(app.heading, BLACK);
+    text(inner_x, layout.y + dp(16),
+         inner_w - layout.close_w, dp(40),
+         tr("Einstellungen", "Settings"),
+         ALIGN_LEFT | VALIGN_MIDDLE | DOTS);
+    text(layout.close_x, layout.close_y,
+         layout.close_w, layout.close_h, "X",
+         ALIGN_CENTER | VALIGN_MIDDLE);
+
+    set_font(app.heading, BLACK);
+    text(inner_x, layout.y + dp(66), inner_w, dp(28),
+         tr("Tracking", "Tracking"), ALIGN_LEFT | VALIGN_MIDDLE);
+    set_font(app.body, enabled ? BLACK : DGRAY);
+    text(inner_x, layout.autostart_y,
+         inner_w - toggle_w - dp(20), layout.row_h,
+         tr("Autostart", "Autostart"),
+         ALIGN_LEFT | VALIGN_MIDDLE | DOTS);
+    draw_toggle(layout.x + layout.w - dp(20) - toggle_w,
+                layout.autostart_y + (layout.row_h - dp(28)) / 2,
+                enabled, app.autostart.enabled);
+    set_font(app.small, DGRAY);
+    text(inner_x, layout.autostart_y + layout.row_h,
+         inner_w, dp(72),
+         app.autostart.enabled
+             ? tr("Tracking startet automatisch bei EPUB, FB2 und CBZ. Auf manchen Geräten kann dadurch die G-Sensor-Drehung ausfallen.",
+                  "Tracking starts automatically for EPUB, FB2, and CBZ. On some devices this can disable G-sensor rotation.")
+             : tr("Öffne Better Stats einmal nach jedem Neustart, um Tracking zu starten. Bücher öffnen direkt im Stock-Reader und der G-Sensor bleibt verfügbar.",
+                  "Open Better Stats once after each restart to start tracking. Books open directly in the stock reader and the G-sensor remains available."),
+         ALIGN_LEFT | VALIGN_TOP);
+
+    DrawLine(inner_x, layout.y + dp(276),
+             layout.x + layout.w - dp(20), layout.y + dp(276), LGRAY);
+    set_font(app.heading, BLACK);
+    text(inner_x, layout.y + dp(278), inner_w, dp(28),
+         tr("Updates", "Updates"), ALIGN_LEFT | VALIGN_MIDDLE);
+    set_font(app.body, BLACK);
+    text(inner_x, layout.update_y,
+         inner_w - toggle_w - dp(20), layout.row_h,
+         tr("Automatisch nach Updates suchen",
+            "Check for updates automatically"),
+         ALIGN_LEFT | VALIGN_MIDDLE | DOTS);
+    draw_toggle(layout.x + layout.w - dp(20) - toggle_w,
+                layout.update_y + (layout.row_h - dp(28)) / 2,
+                1, bs_update_auto_enabled());
+    set_font(app.small, DGRAY);
+    text(inner_x, layout.update_y + layout.row_h,
+         inner_w, dp(42),
+         tr("Prüft beim Start über bekanntes WLAN; Installation nach Bestätigung.",
+            "Checks on launch over known Wi-Fi; installs after confirmation."),
+         ALIGN_LEFT | VALIGN_TOP);
+    snprintf(version, sizeof(version), "%s: %s",
+             tr("Installiert", "Installed"),
+             *app.update.current_version ? app.update.current_version : "–");
+    text(inner_x, layout.check_y - dp(32), inner_w, dp(28), version,
+         ALIGN_LEFT | VALIGN_MIDDLE | DOTS);
+
+    DrawRect(inner_x, layout.check_y, inner_w, layout.check_h, BLACK);
+    set_font(app.heading, BLACK);
+    text(inner_x, layout.check_y, inner_w, layout.check_h,
+         tr("Jetzt prüfen", "Check now"),
+         ALIGN_CENTER | VALIGN_MIDDLE);
+}
+
 static void draw_error(void)
 {
     set_font(app.heading, BLACK);
@@ -1056,6 +1187,8 @@ static void draw(void)
         draw_year();
     if (app.dialog == DIALOG_RELEASE_NOTES)
         draw_release_dialog();
+    else if (app.dialog == DIALOG_SETTINGS)
+        draw_settings_dialog();
     else if (app.dialog != DIALOG_NONE)
         draw_detail_dialog();
     if (DrawPanel)
@@ -1192,43 +1325,18 @@ static void check_for_updates(int automatic)
     }
 }
 
-static void show_settings(void);
-
-static void settings_dialog_handler(int button)
+static void restart_dialog_handler(int button)
 {
-    if (button == 1) {
-        if (bs_update_set_auto_enabled(!bs_update_auto_enabled()) != 0)
-            Message(ICON_WARNING, tr("Update", "Update"),
-                    tr("Einstellung konnte nicht gespeichert werden.",
-                       "The setting could not be saved."), 5000);
-        else
-            show_settings();
-    } else if (button == 2) {
-        check_for_updates(0);
-    }
+    if (button == 1)
+        iv_ipc_request(MSG_REBOOT, 1, NULL, 0, 0);
 }
 
 static void show_settings(void)
 {
     bs_autostart_get(&app.autostart);
     bs_update_read_current(&app.update);
-    char message[768];
-    snprintf(message, sizeof(message), "%s\n\n%s: %s\n%s: %s",
-             app.autostart.enabled
-                 ? tr("Tracking startet automatisch bei EPUB, FB2 und CBZ.",
-                      "Tracking starts automatically for EPUB, FB2, and CBZ.")
-                 : (*app.autostart.message ? app.autostart.message
-                    : tr("Automatisches Tracking ist nicht aktiv.",
-                         "Automatic tracking is not active.")),
-             tr("Installiert", "Installed"),
-             *app.update.current_version ? app.update.current_version : "–",
-             tr("Automatische Update-Suche", "Automatic update checks"),
-             bs_update_auto_enabled() ? tr("Ein", "On") : tr("Aus", "Off"));
-    Dialog3(ICON_INFORMATION, tr("Einstellungen", "Settings"), message,
-            bs_update_auto_enabled() ? tr("Ausschalten", "Turn off")
-                                     : tr("Einschalten", "Turn on"),
-            tr("Jetzt prüfen", "Check now"), tr("Schließen", "Close"),
-            settings_dialog_handler);
+    app.dialog = DIALOG_SETTINGS;
+    draw();
 }
 
 static void automatic_update(void)
@@ -1264,6 +1372,54 @@ static int point_in(int x, int y, int left, int top, int width, int height)
     return x >= left && x < left + width && y >= top && y < top + height;
 }
 
+static void settings_pointer_up(int x, int y)
+{
+    settings_dialog_layout layout = settings_layout();
+    int inner_x = layout.x + dp(20);
+    int inner_w = layout.w - dp(40);
+
+    if (!point_in(x, y, layout.x, layout.y, layout.w, layout.h)
+        || point_in(x, y, layout.close_x, layout.close_y,
+                    layout.close_w, layout.close_h)) {
+        app.dialog = DIALOG_NONE;
+        draw();
+        return;
+    }
+    if (point_in(x, y, inner_x, layout.autostart_y,
+                 inner_w, layout.row_h)) {
+        int wanted;
+        if (!app.autostart.available && !app.autostart.enabled)
+            return;
+        wanted = !app.autostart.enabled;
+        bs_autostart_set(wanted, &app.autostart);
+        draw();
+        if (app.autostart.enabled == wanted && !wanted)
+            Dialog(ICON_QUESTION,
+                   tr("Neustart erforderlich", "Restart required"),
+                   tr("Autostart ist ausgeschaltet. Starte den Reader neu, damit Bücher direkt im Stock-Reader geöffnet werden und der G-Sensor wieder funktioniert.",
+                      "Autostart is off. Restart the reader so books open directly in the stock reader and G-sensor rotation works again."),
+                   tr("Jetzt neu starten", "Restart now"),
+                   tr("Später", "Later"), restart_dialog_handler);
+        else if (app.autostart.enabled != wanted)
+            Message(ICON_WARNING, tr("Autostart", "Autostart"),
+                    app.autostart.message, 5000);
+        return;
+    }
+    if (point_in(x, y, inner_x, layout.update_y,
+                 inner_w, layout.row_h)) {
+        if (bs_update_set_auto_enabled(!bs_update_auto_enabled()) != 0)
+            Message(ICON_WARNING, tr("Update", "Update"),
+                    tr("Einstellung konnte nicht gespeichert werden.",
+                       "The setting could not be saved."), 5000);
+        else
+            draw();
+        return;
+    }
+    if (point_in(x, y, inner_x, layout.check_y,
+                 inner_w, layout.check_h))
+        check_for_updates(0);
+}
+
 static void release_scroll_by(int delta)
 {
     release_dialog_layout layout = release_layout();
@@ -1296,6 +1452,10 @@ static void pointer_up(int x, int y)
 {
     if (app.dialog == DIALOG_RELEASE_NOTES) {
         release_pointer_up(x, y);
+        return;
+    }
+    if (app.dialog == DIALOG_SETTINGS) {
+        settings_pointer_up(x, y);
         return;
     }
     if (app.dialog != DIALOG_NONE) {
@@ -1433,7 +1593,7 @@ static int handler(int type, int par1, int par2)
         app.loaded_tab = -1;
         app.dialog = DIALOG_NONE;
         bs_context_open(&app.context, stats_db_path(), explorer_db_path(), &app.error);
-        bs_autostart_set(1, &app.autostart);
+        bs_autostart_get(&app.autostart);
         bs_update_read_current(&app.update);
         return 1;
     }
@@ -1546,8 +1706,7 @@ int main(int argc, char **argv)
         return run_daemon();
     if (argc > 1 && strcmp(argv[1], "--prepare") == 0) {
         bs_autostart_status status;
-        bs_autostart_set(1, &status);
-        return status.enabled ? 0 : 1;
+        return bs_autostart_prepare(&status) ? 0 : 1;
     }
     InkViewMain(handler);
     return 0;

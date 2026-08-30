@@ -6,6 +6,7 @@
 #include <QUrl>
 #include <QVariantList>
 
+#include "inkview_bridge.h"
 #include "installer.h"
 
 extern "C" {
@@ -61,6 +62,16 @@ StatsBridge::~StatsBridge()
 QVariantMap StatsBridge::autostartStatus()
 {
     return autostartMap(::autostartStatus());
+}
+
+QVariantMap StatsBridge::setAutostartEnabled(bool enabled)
+{
+    return autostartMap(::setAutostartEnabled(enabled));
+}
+
+void StatsBridge::rebootDevice()
+{
+    rebootPocketBook();
 }
 
 bool StatsBridge::automaticUpdates() const

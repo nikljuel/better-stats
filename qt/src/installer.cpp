@@ -112,7 +112,6 @@ void ensureRegistered()
     writeResourceIfChanged(QStringLiteral(":/betterstats_f.bmp"),
                            QLatin1String(kIconFocusedPath));
     patchViewJson();
-    setAutostartEnabled(true);
 }
 
 AutostartStatus autostartStatus()
