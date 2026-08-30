@@ -281,20 +281,49 @@ static void draw_home_icon(int center_x, int center_y)
 static void draw_donut(int center_x, int center_y, int radius,
                        int thickness, double fraction)
 {
-    int steps = 720;
-    int inner = radius - thickness;
+    const double pi = 3.14159265358979323846;
+    int inner = imax(0, radius - thickness);
     if (fraction < 0.0)
         fraction = 0.0;
     if (fraction > 1.0)
         fraction = 1.0;
-    int filled = (int)(fraction * steps + 0.5);
-    for (int i = 0; i < steps; ++i) {
-        double angle = (i * 360.0 / steps - 90) * 3.14159265358979323846 / 180.0;
-        int color = i < filled ? BLACK : 0xd8d8d8;
-        DrawLine(center_x + (int)(cos(angle) * inner),
-                 center_y + (int)(sin(angle) * inner),
-                 center_x + (int)(cos(angle) * radius),
-                 center_y + (int)(sin(angle) * radius), color);
+
+    fill_circle(center_x, center_y, radius, 0xd8d8d8);
+    if (fraction >= 1.0)
+        fill_circle(center_x, center_y, radius, BLACK);
+    if (inner > 0)
+        fill_circle(center_x, center_y, inner, WHITE);
+
+    if (fraction > 0.0 && fraction < 1.0) {
+        double sweep = fraction * 2.0 * pi;
+        int radius_squared = radius * radius;
+        int inner_squared = inner * inner;
+        for (int y = -radius; y <= radius; ++y) {
+            int run_start = 0;
+            int in_run = 0;
+            for (int x = -radius; x <= radius; ++x) {
+                int distance = x * x + y * y;
+                int filled = distance <= radius_squared
+                    && distance > inner_squared;
+                if (filled) {
+                    double angle = atan2((double)y, (double)x) + pi / 2.0;
+                    if (angle < 0.0)
+                        angle += 2.0 * pi;
+                    filled = angle <= sweep;
+                }
+                if (filled && !in_run) {
+                    run_start = x;
+                    in_run = 1;
+                } else if (!filled && in_run) {
+                    FillArea(center_x + run_start, center_y + y,
+                             x - run_start, 1, BLACK);
+                    in_run = 0;
+                }
+            }
+            if (in_run)
+                FillArea(center_x + run_start, center_y + y,
+                         radius - run_start + 1, 1, BLACK);
+        }
     }
 }
 
