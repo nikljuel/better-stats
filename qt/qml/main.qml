@@ -188,7 +188,7 @@ Window {
 
         StyledText {
             width: parent.width
-            styledFont: FontStyles.BodyL
+            styledFont: FontStyles.Body
             color: GlobalValues.defaultTextColor
             wrapMode: Text.Wrap
             text: releaseNotesDialog.message
@@ -220,7 +220,7 @@ Window {
 
         StyledText {
             width: parent.width
-            styledFont: FontStyles.BodyL
+            styledFont: FontStyles.Body
             color: GlobalValues.defaultTextColor
             wrapMode: Text.Wrap
             text: Tr.t("Version %1 ist verfügbar.",

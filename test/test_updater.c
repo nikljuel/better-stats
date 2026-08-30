@@ -85,6 +85,7 @@ int main(void)
     assert(bs_update_version_compare("v2.0.0", "v1.99.99") > 0);
     assert(bs_update_version_compare("v1.2.3", "v1.2.3") == 0);
     assert(bs_update_version_compare("v1.2.8-era-test", "v1.2.8") < 0);
+    assert(bs_update_version_compare("v1.3.0-dirty", "v1.3.0") < 0);
 
     char json[2048];
     snprintf(json, sizeof(json),
@@ -178,25 +179,34 @@ int main(void)
     current = fopen(
         "/tmp/bs_update_install/applications/betterstats/current", "w");
     assert(current != NULL);
-    assert(fputs("v1.2.10\n", current) >= 0);
+    assert(fputs("v1.3.0-dirty\n", current) >= 0);
     assert(fclose(current) == 0);
     assert(bs_update_release_notes_pending());
     assert(bs_update_release_notes("de") != NULL);
-    assert(bs_update_release_notes("de")[0] == '\0');
-    assert(bs_update_release_notes("en")[0] == '\0');
+    assert(strstr(bs_update_release_notes("de"), "Leihbücher") != NULL);
+    assert(strstr(bs_update_release_notes("en"), "loaned books") != NULL);
+    assert(bs_update_mark_release_notes_seen() == 0);
+    assert(!bs_update_release_notes_pending());
+
+    current = fopen(
+        "/tmp/bs_update_install/applications/betterstats/current", "w");
+    assert(current != NULL);
+    assert(fputs("v1.3.0\n", current) >= 0);
+    assert(fclose(current) == 0);
+    assert(bs_update_release_notes_pending());
     assert(bs_update_mark_release_notes_seen() == 0);
     assert(!bs_update_release_notes_pending());
 
     FILE *seen = fopen("/tmp/bs_update_test/release-notes-seen", "w");
     assert(seen != NULL);
-    assert(fputs("v1.2.11\n", seen) >= 0);
+    assert(fputs("v1.3.1\n", seen) >= 0);
     assert(fclose(seen) == 0);
     assert(!bs_update_release_notes_pending());
 
     current = fopen(
         "/tmp/bs_update_install/applications/betterstats/current", "w");
     assert(current != NULL);
-    assert(fputs("v1.2.11\n", current) >= 0);
+    assert(fputs("v1.3.1\n", current) >= 0);
     assert(fclose(current) == 0);
     assert(!bs_update_release_notes_pending());
 
