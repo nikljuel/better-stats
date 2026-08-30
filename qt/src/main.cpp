@@ -2,8 +2,10 @@
 #include <QFile>
 #include <QFont>
 #include <QGuiApplication>
+#include <QImage>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
+#include <QQuickImageProvider>
 #include <QQuickWindow>
 #include <QString>
 #include <QTimer>
@@ -28,6 +30,22 @@ void selectPlatformPlugin()
         qputenv("QT_QPA_PLATFORM", QByteArray(kPlatformName));
 }
 
+class InvertedCoverProvider final : public QQuickImageProvider {
+public:
+    InvertedCoverProvider() : QQuickImageProvider(QQuickImageProvider::Image) {}
+
+    QImage requestImage(const QString &id, QSize *size,
+                        const QSize &) override
+    {
+        const QString url = QUrl::fromPercentEncoding(id.toUtf8());
+        QImage image(QUrl(url).toLocalFile());
+        if (size)
+            *size = image.size();
+        image.invertPixels();
+        return image;
+    }
+};
+
 } // namespace
 
 int main(int argc, char *argv[])
@@ -36,6 +54,7 @@ int main(int argc, char *argv[])
     QCoreApplication::setSetuidAllowed(true);
 
     const ScreenSize screen = openInkViewScreen();
+    enableScreenInversion();
 
     // Register the launcher icon, refreshing it if this build ships a new one.
     ensureRegistered();
@@ -51,6 +70,8 @@ int main(int argc, char *argv[])
     StatsBridge stats;
 
     QQmlApplicationEngine engine;
+    engine.addImageProvider(QStringLiteral("inverted-cover"),
+                            new InvertedCoverProvider);
     engine.addImportPath(QString::fromUtf8(kQmlPath));
     engine.rootContext()->setContextProperty(QStringLiteral("stats"), &stats);
     engine.rootContext()->setContextProperty(QStringLiteral("deviceLang"),
@@ -62,6 +83,7 @@ int main(int argc, char *argv[])
     engine.load(QUrl(QString::fromUtf8(kSceneUrl)));
     if (engine.rootObjects().isEmpty())
         return 1;
+
     const QByteArray readyPath = qgetenv("BETTERSTATS_READY_FILE");
     if (!readyPath.isEmpty()) {
         QFile ready(QString::fromUtf8(readyPath));

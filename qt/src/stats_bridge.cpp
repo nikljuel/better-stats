@@ -52,6 +52,16 @@ StatsBridge::StatsBridge(QObject *parent) : QObject(parent)
     bs_error error{};
     bs_context_open(&context_, stats_db_path(), explorer_db_path(), &error);
     bs_update_read_current(&update_);
+    inverted_ = isScreenInverted();
+    auto *poll = new QTimer(this);
+    connect(poll, &QTimer::timeout, this, [this] {
+        bool now = isScreenInverted();
+        if (now != inverted_) {
+            inverted_ = now;
+            emit invertedChanged();
+        }
+    });
+    poll->start(2000);
 }
 
 StatsBridge::~StatsBridge()
@@ -72,6 +82,11 @@ QVariantMap StatsBridge::setAutostartEnabled(bool enabled)
 void StatsBridge::rebootDevice()
 {
     rebootPocketBook();
+}
+
+bool StatsBridge::inverted() const
+{
+    return inverted_;
 }
 
 bool StatsBridge::automaticUpdates() const

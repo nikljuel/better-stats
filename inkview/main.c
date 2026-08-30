@@ -19,6 +19,11 @@
 #pragma weak LoadPNG8
 #pragma weak SetApplicationCaptionHeight
 #pragma weak SetPanelType
+#pragma weak IvGetScreenModeInversion
+#pragma weak IvSetAppCapability
+
+extern _Bool IvGetScreenModeInversion(void);
+extern void IvSetAppCapability(int caps);
 
 enum { TAB_OVERVIEW, TAB_STREAK, TAB_CALENDAR, TAB_YEAR, TAB_COUNT };
 enum {
@@ -322,8 +327,16 @@ static int draw_cover(const char *path, const char *title,
     height &= ~1;
     ibitmap *bitmap = load_cover(path, width, height);
     if (bitmap) {
+        int inverted = IvGetScreenModeInversion && IvGetScreenModeInversion();
+        int size = bitmap->scanline * bitmap->height;
+        if (inverted)
+            for (int i = 0; i < size; ++i)
+                bitmap->data[i] = ~bitmap->data[i];
         DrawBitmapRect(x, y, width, height, bitmap,
                        ALIGN_FIT | ALIGN_CENTER | VALIGN_MIDDLE);
+        if (inverted)
+            for (int i = 0; i < size; ++i)
+                bitmap->data[i] = ~bitmap->data[i];
         return 1;
     }
     DrawRect(x, y, width, height, LGRAY);
@@ -1556,6 +1569,8 @@ static void pointer_up(int x, int y)
 static int handler(int type, int par1, int par2)
 {
     if (type == EVT_INIT) {
+        if (IvSetAppCapability)
+            IvSetAppCapability(1); /* APP_CAPABILITY_SUPPORT_SCREEN_INVERSION */
         if (SetPanelType)
             SetPanelType(PANEL_ENABLED);
         if (InitPanel)

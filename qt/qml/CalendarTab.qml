@@ -183,7 +183,9 @@ Item {
                     Image {
                         id: coverImg
                         anchors.fill: parent
-                        source: cell.topBook ? (cell.topBook.coverUrl || "") : ""
+                        source: stats.inverted
+                                ? "image://inverted-cover/" + encodeURIComponent(cell.topBook ? (cell.topBook.coverUrl || "") : "")
+                                : cell.topBook ? (cell.topBook.coverUrl || "") : ""
                         visible: source != "" && status === Image.Ready
                         fillMode: Image.PreserveAspectFit
                         horizontalAlignment: Image.AlignRight
@@ -259,7 +261,9 @@ Item {
                         Image {
                             id: dlgCover
                             anchors.fill: parent
-                            source: modelData.coverUrl || ""
+                            source: stats.inverted
+                                    ? "image://inverted-cover/" + encodeURIComponent(modelData.coverUrl || "")
+                                    : modelData.coverUrl || ""
                             visible: source != "" && status === Image.Ready
                             fillMode: Image.PreserveAspectFit
                         }

@@ -11,6 +11,7 @@ struct bs_context;
 /* Bridge between QML and the existing C modules (tracker/stats_db). */
 class StatsBridge : public QObject {
     Q_OBJECT
+    Q_PROPERTY(bool inverted READ inverted NOTIFY invertedChanged)
     Q_PROPERTY(bool automaticUpdates READ automaticUpdates NOTIFY updateChanged)
     Q_PROPERTY(QString updateState READ updateState NOTIFY updateChanged)
     Q_PROPERTY(QString currentVersion READ currentVersion NOTIFY updateChanged)
@@ -36,6 +37,7 @@ public:
     Q_INVOKABLE QString releaseNotes(const QString &language);
     Q_INVOKABLE void dismissReleaseNotes();
 
+    bool inverted() const;
     bool automaticUpdates() const;
     QString updateState() const;
     QString currentVersion() const;
@@ -44,6 +46,7 @@ public:
     void automaticUpdate();
 
 signals:
+    void invertedChanged();
     void updateChanged();
 
 private:
@@ -53,6 +56,7 @@ private:
     bs_context *context_ = nullptr;
     bs_update_info update_{};
     QString updateState_ = QStringLiteral("idle");
+    bool inverted_ = false;
     bool releaseNotesPending_ = false;
     bool automaticUpdateDeferred_ = false;
 };

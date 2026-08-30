@@ -91,7 +91,9 @@ Item {
 
                     Image {
                         id: cover
-                        source: tab.book.coverUrl || ""
+                        source: stats.inverted
+                                ? "image://inverted-cover/" + encodeURIComponent(tab.book.coverUrl || "")
+                                : tab.book.coverUrl || ""
                         visible: (tab.book.coverUrl || "") !== ""
                         width: Global.dp(110)
                         height: Global.dp(165)

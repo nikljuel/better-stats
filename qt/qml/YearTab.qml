@@ -200,7 +200,9 @@ Item {
                             Image {
                                 id: mini
                                 anchors.fill: parent
-                                source: modelData.coverUrl || ""
+                                source: stats.inverted
+                                        ? "image://inverted-cover/" + encodeURIComponent(modelData.coverUrl || "")
+                                        : modelData.coverUrl || ""
                                 visible: source != "" && status === Image.Ready
                                 fillMode: Image.PreserveAspectCrop
                             }
@@ -256,7 +258,9 @@ Item {
                         Image {
                             id: dlgCover
                             anchors.fill: parent
-                            source: modelData.coverUrl || ""
+                            source: stats.inverted
+                                    ? "image://inverted-cover/" + encodeURIComponent(modelData.coverUrl || "")
+                                    : modelData.coverUrl || ""
                             visible: source != "" && status === Image.Ready
                             fillMode: Image.PreserveAspectFit
                         }

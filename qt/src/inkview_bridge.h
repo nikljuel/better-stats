@@ -14,3 +14,5 @@ ScreenSize openInkViewScreen();
 QString inkViewFontFamily();
 QString inkViewLang(); /* e.g. "de", "en" */
 void rebootPocketBook();
+bool isScreenInverted();
+void enableScreenInversion();
