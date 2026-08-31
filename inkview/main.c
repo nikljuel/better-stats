@@ -1118,6 +1118,9 @@ static void draw_settings_dialog(void)
     int inner_w = layout.w - dp(40);
     int toggle_w = dp(52);
     int enabled = app.autostart.available || app.autostart.enabled;
+    int mixed_reader = !strcmp(app.autostart.message,
+                               "KOReader association detected")
+        || !strcmp(app.autostart.message, "Another reader is registered");
     char version[160];
 
     DimArea(0, content_top(), app.width,
@@ -1148,11 +1151,17 @@ static void draw_settings_dialog(void)
     set_font(app.small, DGRAY);
     text(inner_x, layout.autostart_y + layout.row_h,
          inner_w, dp(72),
-         app.autostart.enabled
-             ? tr("Tracking startet automatisch bei EPUB, FB2 und CBZ. Auf manchen Geräten kann dadurch die G-Sensor-Drehung ausfallen.",
-                  "Tracking starts automatically for EPUB, FB2, and CBZ. On some devices this can disable G-sensor rotation.")
-             : tr("Öffne Better Stats einmal nach jedem Neustart, um Tracking zu starten. Bücher öffnen direkt im Stock-Reader und der G-Sensor bleibt verfügbar.",
-                  "Open Better Stats once after each restart to start tracking. Books open directly in the stock reader and the G-sensor remains available."),
+         mixed_reader
+             ? app.autostart.enabled
+               ? tr("Der andere Reader bleibt Standard. Der Better-Stats-Handler ist zusätzlich vor dem Stock-Reader installiert.",
+                    "The other reader remains the default. The Better Stats handler is also installed before the stock reader.")
+               : tr("Der andere Reader bleibt Standard. Beim Aktivieren bleibt seine Zuordnung unverändert.",
+                    "The other reader remains the default. Enabling leaves its association unchanged.")
+             : app.autostart.enabled
+               ? tr("Tracking startet automatisch bei EPUB, FB2 und CBZ. Auf manchen Geräten kann dadurch die G-Sensor-Drehung ausfallen.",
+                    "Tracking starts automatically for EPUB, FB2, and CBZ. On some devices this can disable G-sensor rotation.")
+               : tr("Öffne Better Stats einmal nach jedem Neustart, um Tracking zu starten. Bücher öffnen direkt im Stock-Reader und der G-Sensor bleibt verfügbar.",
+                    "Open Better Stats once after each restart to start tracking. Books open directly in the stock reader and the G-sensor remains available."),
          ALIGN_LEFT | VALIGN_TOP);
 
     DrawLine(inner_x, layout.y + dp(276),

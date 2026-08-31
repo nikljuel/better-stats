@@ -9,10 +9,14 @@ extern "C" {
 
 typedef struct {
     int ok;
+    int entry_found;
     int changed;
     int handler_present;
-    int handler_first;
+    int handler_ready;
     int koreader_present;
+    int other_reader_present;
+    size_t entry_start;
+    size_t entry_size;
     char stock_handler[128];
     char *output;
     size_t output_size;

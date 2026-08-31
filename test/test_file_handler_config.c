@@ -31,7 +31,8 @@ int main(void)
     assert(memcmp(enabled.output, wanted, enabled.output_size) == 0);
 
     handler_config_result repeated = patch("epub", enabled.output, 1);
-    assert(repeated.ok && !repeated.changed && repeated.handler_present);
+    assert(repeated.ok && !repeated.changed && repeated.handler_present
+           && repeated.handler_ready);
     handler_config_result disabled = patch("epub", enabled.output, 0);
     assert(disabled.ok && disabled.changed && disabled.handler_present);
     assert(disabled.output_size == strlen(stock));
@@ -43,29 +44,60 @@ int main(void)
     const char *ko =
         "epub:@EPUB_file:1:KOReader.App,eink-reader.app:ICON_EPUB\n";
     handler_config_result koreader = patch("epub", ko, 1);
-    assert(koreader.ok && koreader.koreader_present);
+    assert(koreader.ok && koreader.koreader_present
+           && !koreader.other_reader_present && koreader.changed);
+    assert(strstr(koreader.output,
+        "KOReader.App,betterstats-handler.app,eink-reader.app"));
     free_handler_config(&koreader);
 
     handler_config_result foreign = patch("epub",
         "epub:@EPUB_file:1:plato.app,eink-reader.app:ICON_EPUB\n", 1);
-    assert(foreign.ok && foreign.changed && !foreign.koreader_present);
-    assert(strstr(foreign.output, "betterstats-handler.app,plato.app"));
+    assert(foreign.ok && foreign.changed && !foreign.koreader_present
+           && foreign.other_reader_present);
+    assert(strstr(foreign.output, "plato.app,betterstats-handler.app,eink-reader.app"));
     free_handler_config(&foreign);
 
     handler_config_result second = patch("epub",
         "epub:@EPUB_file:1:plato.app,betterstats-handler.app,eink-reader.app:ICON_EPUB\n",
         0);
-    assert(second.ok && second.handler_present && !second.handler_first);
+    assert(second.ok && second.handler_present && second.handler_ready);
     free_handler_config(&second);
+
+    handler_config_result misplaced = patch("epub",
+        "epub:@EPUB_file:1:betterstats-handler.app,plato.app,eink-reader.app:ICON_EPUB\n",
+        1);
+    assert(misplaced.ok && misplaced.changed && !misplaced.handler_ready);
+    assert(strstr(misplaced.output,
+        "plato.app,betterstats-handler.app,eink-reader.app"));
+    free_handler_config(&misplaced);
+
+    handler_config_result duplicate = patch("epub",
+        "epub:@EPUB_file:1:betterstats-handler.app,koreader.app,betterstats-handler.app,eink-reader.app:ICON_EPUB\n",
+        1);
+    assert(duplicate.ok && duplicate.changed);
+    assert(strstr(duplicate.output,
+        "koreader.app,betterstats-handler.app,eink-reader.app"));
+    free_handler_config(&duplicate);
+
+    handler_config_result later_koreader = patch("epub",
+        "epub:@EPUB_file:1:eink-reader.app,koreader.app:ICON_EPUB\n", 0);
+    assert(later_koreader.ok && !later_koreader.koreader_present
+           && !later_koreader.other_reader_present);
+    free_handler_config(&later_koreader);
 
     handler_config_result malformed = patch("epub",
         "epub:@EPUB_file:1:eink-reader.app\n", 1);
-    assert(!malformed.ok);
+    assert(!malformed.ok && malformed.entry_found);
     free_handler_config(&malformed);
     handler_config_result missing = patch("epub",
         "pdf:@PDF_file:1:eink-reader.app:ICON_PDF\n", 1);
-    assert(!missing.ok);
+    assert(!missing.ok && !missing.entry_found);
     free_handler_config(&missing);
+
+    handler_config_result uppercase = patch("epub",
+        "EPUB:@EPUB_file:1:eink-reader.app:ICON_EPUB\n", 1);
+    assert(uppercase.ok && uppercase.changed);
+    free_handler_config(&uppercase);
 
     /* FB2 format support */
     const char *fb2_stock =

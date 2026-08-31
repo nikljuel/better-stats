@@ -14,7 +14,7 @@ struct AutostartStatus {
 void ensureRegistered();
 
 /* EPUB/FB2/CBZ proxy setup. All writes stay below /mnt/ext1 and preserve the
- * firmware's existing handler list; an existing KOReader association is left
- * alone. */
+ * existing handler order; Better Stats is placed directly before the stock
+ * reader so another default reader remains untouched. */
 AutostartStatus autostartStatus();
 AutostartStatus setAutostartEnabled(bool enabled);

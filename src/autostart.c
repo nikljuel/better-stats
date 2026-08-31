@@ -27,13 +27,13 @@
 #ifndef HANDLER_PATH
 #define HANDLER_PATH HANDLER_DIR "/" HANDLER_NAME
 #endif
-#define HANDLER_MARKER "# Better Stats autostart"
+#define HANDLER_MARKER "# Better Stats autostart v2"
 #define AUTOSTART_DISABLED STATS_DIR "/autostart-disabled"
 #define MAX_CONFIG_SIZE (1024U * 1024U)
 
 static const char handler_script[] =
     "#!/bin/sh\n"
-    "# Better Stats autostart\n"
+    "# Better Stats autostart v2\n"
     "self=\"betterstats-handler.app\"\n"
     "app=\"/mnt/ext1/applications/BetterStats.app\"\n"
     "cfg=\"/mnt/ext1/system/config/extensions.cfg\"\n"
@@ -56,9 +56,13 @@ static const char handler_script[] =
     "\n"
     "reader=\"\"\n"
     "apps=$(grep -i \"^$fmt:\" \"$cfg\" 2>/dev/null | head -n 1 | cut -d: -f4)\n"
+    "after_self=0\n"
     "IFS=,\n"
     "for name in $apps; do\n"
-    "    [ \"$name\" = \"$self\" ] && continue\n"
+    "    if [ \"$after_self\" = 0 ]; then\n"
+    "        [ \"$name\" = \"$self\" ] && after_self=1\n"
+    "        continue\n"
+    "    fi\n"
     "    reader=$(find_app \"$name\") && break\n"
     "    case \"$name\" in\n"
     "        *_with_*) reader=$(find_app \"${name%%_with_*}.app\") && break ;;\n"
@@ -132,10 +136,90 @@ static int write_file(const char *path, const char *data, size_t size)
     return ok;
 }
 
+static const char *formats[] = {"epub", "fb2", "cbz"};
+#define FORMAT_COUNT (sizeof(formats) / sizeof(formats[0]))
+
 static int active_config(char **data, size_t *size)
 {
     return read_file(exists(USER_EXTENSIONS) ? USER_EXTENSIONS : SYSTEM_EXTENSIONS,
                      data, size);
+}
+
+static int append_entry(char **data, size_t *size, const char *entry,
+                        size_t entry_size)
+{
+    size_t separator = *size && (*data)[*size - 1] != '\n';
+    if (*size + separator + entry_size > MAX_CONFIG_SIZE)
+        return 0;
+    char *grown = realloc(*data, *size + separator + entry_size + 1);
+    if (!grown)
+        return 0;
+    *data = grown;
+    if (separator)
+        (*data)[(*size)++] = '\n';
+    memcpy(*data + *size, entry, entry_size);
+    *size += entry_size;
+    (*data)[*size] = '\0';
+    return 1;
+}
+
+/* PocketBook treats the user file as a per-format override. KOReader can
+ * therefore leave it with only #koreader (or only the formats it owns). Fill
+ * just our missing formats from the firmware file and preserve everything the
+ * user file already contains. */
+static int complete_config(const char *input, size_t input_size,
+                           char **data, size_t *size)
+{
+    char *system = NULL;
+    size_t system_size = 0;
+    *data = malloc(input_size + 1);
+    if (!*data)
+        return 0;
+    memcpy(*data, input, input_size);
+    (*data)[input_size] = '\0';
+    *size = input_size;
+
+    size_t i;
+    for (i = 0; i < FORMAT_COUNT; ++i) {
+        handler_config_result current;
+        patch_handler_config(*data, *size, formats[i], HANDLER_NAME, 0,
+                             &current);
+        if (current.ok) {
+            free_handler_config(&current);
+            continue;
+        }
+        int malformed = current.entry_found;
+        free_handler_config(&current);
+        if (malformed)
+            goto failure;
+        if (!system && !read_file(SYSTEM_EXTENSIONS, &system, &system_size))
+            goto failure;
+
+        handler_config_result fallback;
+        patch_handler_config(system, system_size, formats[i], HANDLER_NAME, 0,
+                             &fallback);
+        if (!fallback.ok) {
+            int invalid = fallback.entry_found;
+            free_handler_config(&fallback);
+            if (invalid)
+                goto failure;
+            continue;
+        }
+        int ok = append_entry(data, size, system + fallback.entry_start,
+                              fallback.entry_size);
+        free_handler_config(&fallback);
+        if (!ok)
+            goto failure;
+    }
+    free(system);
+    return 1;
+
+failure:
+    free(system);
+    free(*data);
+    *data = NULL;
+    *size = 0;
+    return 0;
 }
 
 static int installed_handler(char **data, size_t *size)
@@ -190,36 +274,38 @@ static int write_preference(int enabled)
     return 0;
 }
 
-static const char *formats[] = {"epub", "fb2", "cbz"};
-#define FORMAT_COUNT (sizeof(formats) / sizeof(formats[0]))
-
 void bs_autostart_get(bs_autostart_status *out)
 {
-    char *config = NULL;
-    size_t config_size = 0;
+    char *raw = NULL, *config = NULL;
+    size_t raw_size = 0, config_size = 0;
     char *handler = NULL;
     size_t handler_size = 0;
     memset(out, 0, sizeof(*out));
-    if (!active_config(&config, &config_size)) {
+    if (!active_config(&raw, &raw_size)
+        || !complete_config(raw, raw_size, &config, &config_size)) {
+        free(raw);
         message(out, "Handler configuration is unavailable");
         return;
     }
-    int any_ok = 0, any_present = 0, any_not_first = 0, any_koreader = 0;
+    free(raw);
+    int supported = 0, ready = 0, any_present = 0;
+    int any_koreader = 0, any_other_reader = 0;
     size_t i;
     for (i = 0; i < FORMAT_COUNT; ++i) {
         handler_config_result parsed;
         patch_handler_config(config, config_size, formats[i],
                              HANDLER_NAME, 0, &parsed);
-        if (parsed.ok) {
-            any_ok = 1;
+        if (parsed.ok && *parsed.stock_handler) {
+            ++supported;
             if (parsed.handler_present) any_present = 1;
-            if (parsed.handler_present && !parsed.handler_first) any_not_first = 1;
+            if (parsed.handler_ready) ++ready;
             if (parsed.koreader_present) any_koreader = 1;
+            if (parsed.other_reader_present) any_other_reader = 1;
         }
         free_handler_config(&parsed);
     }
     free(config);
-    if (!any_ok) {
+    if (!supported) {
         message(out, "Handler configuration is unavailable");
         return;
     }
@@ -227,13 +313,13 @@ void bs_autostart_get(bs_autostart_status *out)
     int owned = handler_exists && contains(handler, handler_size, "# Better Stats");
     int current = handler_exists && contains(handler, handler_size, HANDLER_MARKER);
     free(handler);
-    out->enabled = any_present && !any_not_first && current;
-    out->available = !any_koreader && (!handler_exists || owned);
-    if (any_koreader)
-        message(out, "KOReader association detected");
-    else if (handler_exists && !owned)
+    out->enabled = ready == supported && current;
+    out->available = !handler_exists || owned;
+    if (handler_exists && !owned)
         message(out, "Handler path is already in use");
-    else if (any_not_first)
+    else if (any_koreader)
+        message(out, "KOReader association detected");
+    else if (any_other_reader)
         message(out, "Another reader is registered");
     else if (any_present && !out->enabled)
         message(out, "Better Stats handler needs updating");
@@ -241,12 +327,13 @@ void bs_autostart_get(bs_autostart_status *out)
 
 static int apply_autostart(int enabled, bs_autostart_status *out)
 {
-    char *original = NULL;
-    size_t original_size = 0;
+    char *original = NULL, *complete = NULL;
+    size_t original_size = 0, complete_size = 0;
     char *handler = NULL;
     size_t handler_size = 0;
     const char *failure = NULL;
     handler_config_result results[FORMAT_COUNT];
+    memset(results, 0, sizeof(results));
     memset(out, 0, sizeof(*out));
     if (!active_config(&original, &original_size)) {
         message(out, "Handler configuration is unavailable");
@@ -254,20 +341,31 @@ static int apply_autostart(int enabled, bs_autostart_status *out)
     }
     const char *input = original;
     size_t input_size = original_size;
-    int any_changed = 0, any_koreader = 0;
+    int any_changed = 0, supported = 0;
+    if (enabled) {
+        if (!complete_config(original, original_size, &complete,
+                             &complete_size)) {
+            failure = "Handler configuration is unavailable";
+            goto cleanup;
+        }
+        input = complete;
+        input_size = complete_size;
+        any_changed = complete_size != original_size
+            || memcmp(complete, original, original_size) != 0;
+    }
     size_t i;
     for (i = 0; i < FORMAT_COUNT; ++i) {
         patch_handler_config(input, input_size, formats[i],
                              HANDLER_NAME, enabled, &results[i]);
         if (results[i].ok) {
+            ++supported;
             if (results[i].changed) any_changed = 1;
-            if (results[i].koreader_present) any_koreader = 1;
             input = results[i].output;
             input_size = results[i].output_size;
         }
     }
-    if (enabled && any_koreader) {
-        failure = "KOReader association detected";
+    if (enabled && !supported) {
+        failure = "Handler configuration is unavailable";
         goto cleanup;
     }
     int handler_exists = installed_handler(&handler, &handler_size);
@@ -295,12 +393,14 @@ static int apply_autostart(int enabled, bs_autostart_status *out)
     if (!enabled && owned)
         unlink(HANDLER_PATH);
     free(original);
+    free(complete);
     for (i = 0; i < FORMAT_COUNT; ++i)
         free_handler_config(&results[i]);
     bs_autostart_get(out);
     return out->enabled == !!enabled;
 cleanup:
     free(original);
+    free(complete);
     for (i = 0; i < FORMAT_COUNT; ++i)
         free_handler_config(&results[i]);
     bs_autostart_get(out);

@@ -86,7 +86,10 @@ int patch_handler_config(const char *input, size_t input_size,
         const char *c1 = memchr(line, ':', line_length);
         size_t fmt_len = strlen(format);
         if (c1 && (size_t)(c1 - line) == fmt_len
-            && memcmp(line, format, fmt_len) == 0) {
+            && slice_equal_fold((slice){line, fmt_len}, format)) {
+            out->entry_found = 1;
+            out->entry_start = line_start;
+            out->entry_size = (newline ? line_end + 1 : line_end) - line_start;
             const char *end = line + line_length;
             const char *c2 = memchr(c1 + 1, ':', (size_t)(end - c1 - 1));
             const char *c3 = c2 ? memchr(c2 + 1, ':', (size_t)(end - c2 - 1)) : NULL;
@@ -113,18 +116,29 @@ int patch_handler_config(const char *input, size_t input_size,
                 return -1;
             }
 
-            size_t i;
-            out->handler_first = app_count && slice_equal(apps[0], handler_name);
+            size_t i, stock_index = app_count, handler_count = 0;
             for (i = 0; i < app_count; ++i) {
-                if (slice_equal(apps[i], handler_name))
+                if (slice_equal(apps[i], handler_name)) {
                     out->handler_present = 1;
+                    ++handler_count;
+                }
+                if (stock_index == app_count && stock_reader(apps[i])) {
+                    stock_index = i;
+                    snprintf(out->stock_handler, sizeof(out->stock_handler), "%.*s",
+                             (int)apps[i].length, apps[i].start);
+                }
+            }
+            for (i = 0; i < stock_index; ++i) {
+                if (slice_equal(apps[i], handler_name))
+                    continue;
                 if (slice_equal_fold(apps[i], "koreader.app")
                     || slice_equal_fold(apps[i], "koreader"))
                     out->koreader_present = 1;
-                if (!*out->stock_handler && stock_reader(apps[i]))
-                    snprintf(out->stock_handler, sizeof(out->stock_handler), "%.*s",
-                             (int)apps[i].length, apps[i].start);
+                else
+                    out->other_reader_present = 1;
             }
+            out->handler_ready = handler_count == 1 && stock_index > 0
+                && slice_equal(apps[stock_index - 1], handler_name);
             if (enable && !*out->stock_handler) {
                 set_error(out, "No native reader found");
                 return -1;
@@ -132,16 +146,19 @@ int patch_handler_config(const char *input, size_t input_size,
 
             char joined[4096];
             size_t joined_size = 0;
-            if (enable && !out->handler_present) {
-                size_t n = strlen(handler_name);
-                memcpy(joined, handler_name, n);
-                joined_size = n;
-                out->changed = 1;
-            }
             for (i = 0; i < app_count; ++i) {
-                if (!enable && slice_equal(apps[i], handler_name)) {
-                    out->changed = 1;
+                if (slice_equal(apps[i], handler_name))
                     continue;
+                if (enable && i == stock_index) {
+                    size_t n = strlen(handler_name);
+                    if (joined_size)
+                        joined[joined_size++] = ',';
+                    if (joined_size + n >= sizeof(joined)) {
+                        set_error(out, "Handler entry is too long");
+                        return -1;
+                    }
+                    memcpy(joined + joined_size, handler_name, n);
+                    joined_size += n;
                 }
                 if (joined_size)
                     joined[joined_size++] = ',';
@@ -153,9 +170,11 @@ int patch_handler_config(const char *input, size_t input_size,
                 joined_size += apps[i].length;
             }
 
+            size_t app_start = (size_t)(c3 + 1 - input);
+            size_t app_end = (size_t)(c4 - input);
+            out->changed = joined_size != app_end - app_start
+                || memcmp(joined, input + app_start, joined_size) != 0;
             if (out->changed) {
-                size_t app_start = (size_t)(c3 + 1 - input);
-                size_t app_end = (size_t)(c4 - input);
                 size_t suffix = input_size - app_end;
                 size_t new_size = app_start + joined_size + suffix;
                 char *grown = realloc(out->output, new_size + 1);
