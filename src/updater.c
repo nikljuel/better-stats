@@ -30,51 +30,15 @@
     "https://api.github.com/repos/nikljuel/better-stats/releases/latest"
 
 /* Filled immediately before the release; empty text keeps the dialog hidden. */
-static const char *release_notes_version = "v1.3.0";
+static const char *release_notes_version = "v1.3.1";
 static const char *release_notes_de =
-    "Vorab ein wichtiger Hinweis:\n"
-    "Ältere Lesesitzungen, die durch die Wiederherstellungsfunktion "
-    "(Recovery) ergänzt wurden, waren lediglich Schätzungen. In der Praxis "
-    "hat sich diese Erfassung als unzuverlässig erwiesen. Da Lesesitzungen "
-    "durch den Autostart nun direkt erfasst werden, wird Recovery nicht mehr "
-    "benötigt und deshalb deaktiviert. Bereits vorhandene, wiederhergestellte "
-    "Sitzungen bleiben gespeichert, werden in den Statistiken aber "
-    "ausgeblendet. Dadurch können sich einzelne Werte nach dem Update leicht "
-    "ändern.\n\n"
-    "Neu in 1.3:\n"
-    "- Fehlerbehebungen und Verbesserungen im Updater.\n"
-    "- Die Historie abgeschlossener Bücher bleibt auch nach dem Löschen "
-    "eines Buches erhalten. Das sollte auch für Leihbücher gelten; dies "
-    "konnte noch nicht getestet werden – Feedback ist willkommen.\n"
-    "- CBZ-Dateien werden bei der Coveranzeige und beim Autostart "
-    "unterstützt.\n"
-    "- Release Notes werden ab jetzt nach jedem Update direkt in der App "
-    "angezeigt.\n"
-    "- Zahlreiche UI- und UX-Verbesserungen für die InkView-Ansicht.\n"
-    "- Autostart kann jetzt in den Einstellungen ein- und ausgeschaltet "
-    "werden. Aufgrund einer Firmware-Einschränkung ist der G-Sensor bei "
-    "aktivem Autostart nicht verfügbar.\n"
-    "- Dark-Mode-Unterstützung für die Qt- und InkView-Ansicht.";
+    "Neu in 1.3.1:\n"
+    "- CBZ-Cover zeigen jetzt das erste Bild (alphabetisch) statt einer "
+    "zufälligen Seite aus dem Archiv.";
 static const char *release_notes_en =
-    "An important note before you start:\n"
-    "Older reading sessions added by the recovery feature were estimates "
-    "only. In practice, this method proved unreliable. Since autostart now "
-    "records reading sessions directly, recovery is no longer needed and "
-    "has therefore been disabled. Existing recovered sessions remain stored "
-    "but are hidden from the statistics. As a result, some values may change "
-    "slightly after the update.\n\n"
-    "What's new in 1.3:\n"
-    "- Bug fixes and improvements to the updater.\n"
-    "- Completed-book history remains available after a book is deleted. "
-    "This should also apply to loaned books; it has not yet been tested, so "
-    "feedback is welcome.\n"
-    "- CBZ files are now supported for cover display and autostart.\n"
-    "- Release notes are now shown directly in the app after every update.\n"
-    "- Numerous UI and UX improvements for the InkView interface.\n"
-    "- Autostart can now be enabled or disabled in Settings. Due to a "
-    "firmware limitation, the G-sensor is unavailable while autostart is "
-    "enabled.\n"
-    "- Dark mode support for both the Qt and InkView interfaces.";
+    "What's new in 1.3.1:\n"
+    "- CBZ covers now show the first image (alphabetically) instead of a "
+    "random page from the archive.";
 
 static const char *release_files[] = {
     "betterstats-qt-softfp",

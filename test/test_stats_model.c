@@ -85,9 +85,9 @@ static void make_cbz(const char *path)
     assert(mz_zip_writer_init_file(&zip, path, 0));
     assert(mz_zip_writer_add_mem(&zip, "ComicInfo.xml", metadata,
                                  sizeof(metadata) - 1, MZ_DEFAULT_COMPRESSION));
-    assert(mz_zip_writer_add_mem(&zip, "001.png", png, sizeof(png),
-                                 MZ_DEFAULT_COMPRESSION));
     assert(mz_zip_writer_add_mem(&zip, "002.jpg", jpg, sizeof(jpg),
+                                 MZ_DEFAULT_COMPRESSION));
+    assert(mz_zip_writer_add_mem(&zip, "001.png", png, sizeof(png),
                                  MZ_DEFAULT_COMPRESSION));
     assert(mz_zip_writer_finalize_archive(&zip));
     assert(mz_zip_writer_end(&zip));
@@ -121,7 +121,9 @@ int main(void)
     unlink("/tmp/bs_model_cache/covers/aa.png");
     unlink("/tmp/bs_model_cache/covers/dd.png");
     unlink("/tmp/bs_model_cache/covers/ee.png");
+    unlink("/tmp/bs_model_cache/covers/ee.jpg");
     rmdir("/tmp/bs_model_cache/covers");
+    unlink("/tmp/bs_model_cache/cbz-cover-fix");
     rmdir("/tmp/bs_model_cache");
     unlink("/tmp/bs_model_firmware_covers/1bb.png");
     rmdir("/tmp/bs_model_firmware_covers");
@@ -287,7 +289,9 @@ int main(void)
     unlink("/tmp/bs_model_cache/covers/aa.png");
     unlink("/tmp/bs_model_cache/covers/dd.png");
     unlink("/tmp/bs_model_cache/covers/ee.png");
+    unlink("/tmp/bs_model_cache/covers/ee.jpg");
     rmdir("/tmp/bs_model_cache/covers");
+    unlink("/tmp/bs_model_cache/cbz-cover-fix");
     rmdir("/tmp/bs_model_cache");
     unlink("/tmp/bs_model_firmware_covers/1bb.png");
     rmdir("/tmp/bs_model_firmware_covers");

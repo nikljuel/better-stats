@@ -87,6 +87,42 @@ static int is_leap(int year)
     return year % 4 == 0 && (year % 100 != 0 || year % 400 == 0);
 }
 
+/* v1.3.1: CBZ covers were extracted from a random ZIP entry instead of the
+ * alphabetically first image.  Delete cached covers for CBZ books that still
+ * exist on the device so resolve_cover re-extracts them with the fixed order. */
+static void invalidate_cbz_covers(const bs_context *context)
+{
+    static const char marker[] = STATS_DIR "/cbz-cover-fix";
+    if (file_exists(marker))
+        return;
+    sqlite3 *db = open_explorer(context);
+    if (!db)
+        return;
+    sqlite3_stmt *st = NULL;
+    const char *sql =
+        "SELECT lower(hex(f.fast_hash))"
+        " FROM files f WHERE lower(f.filename) LIKE '%.cbz'";
+    if (sqlite3_prepare_v2(db, sql, -1, &st, NULL) == SQLITE_OK) {
+        static const char *exts[] = {".png", ".jpg", ".gif", ".bmp", ".img"};
+        while (sqlite3_step(st) == SQLITE_ROW) {
+            const char *key = (const char *)sqlite3_column_text(st, 0);
+            if (!key || !*key)
+                continue;
+            char path[BS_PATH_MAX];
+            size_t e;
+            for (e = 0; e < sizeof(exts) / sizeof(exts[0]); ++e) {
+                snprintf(path, sizeof(path), COVER_CACHE_DIR "/%s%s", key, exts[e]);
+                unlink(path);
+            }
+        }
+    }
+    sqlite3_finalize(st);
+    sqlite3_close(db);
+    FILE *f = fopen(marker, "w");
+    if (f)
+        fclose(f);
+}
+
 static int days_in_month(int year, int month)
 {
     static const unsigned char days[] =
@@ -558,7 +594,10 @@ static int extract_cbz_cover(const char *cbz, const char *key,
         return 0;
 
     int ok = 0;
-    mz_uint i;
+    mz_uint i, best_idx = 0;
+    int have_best = 0;
+    char best_name[MZ_ZIP_MAX_ARCHIVE_FILENAME_SIZE] = {0};
+    const char *best_ext = NULL;
     for (i = 0; i < mz_zip_reader_get_num_files(&zip); ++i) {
         mz_zip_archive_file_stat stat;
         if (!mz_zip_reader_file_stat(&zip, i, &stat) || stat.m_is_directory
@@ -568,18 +607,24 @@ static int extract_cbz_cover(const char *cbz, const char *key,
         const char *extension = cover_extension(stat.m_filename);
         if (!strcmp(extension, ".img"))
             continue;
-        size_t image_size = 0;
-        void *image = mz_zip_reader_extract_to_heap(&zip, i, &image_size, 0);
-        if (!image || !image_size) {
-            mz_free(image);
-            continue;
+        if (!have_best || strcasecmp(stat.m_filename, best_name) < 0) {
+            best_idx = i;
+            have_best = 1;
+            snprintf(best_name, sizeof(best_name), "%s", stat.m_filename);
+            best_ext = extension;
         }
-        mkdir(STATS_DIR, 0755);
-        mkdir(COVER_CACHE_DIR, 0755);
-        snprintf(out, BS_PATH_MAX, COVER_CACHE_DIR "/%s%s", key, extension);
-        ok = write_cover(out, image, image_size);
+    }
+    if (have_best) {
+        size_t image_size = 0;
+        void *image = mz_zip_reader_extract_to_heap(&zip, best_idx,
+                                                     &image_size, 0);
+        if (image && image_size) {
+            mkdir(STATS_DIR, 0755);
+            mkdir(COVER_CACHE_DIR, 0755);
+            snprintf(out, BS_PATH_MAX, COVER_CACHE_DIR "/%s%s", key, best_ext);
+            ok = write_cover(out, image, image_size);
+        }
         mz_free(image);
-        break;
     }
     mz_zip_reader_end(&zip);
     if (!ok)
@@ -1000,6 +1045,7 @@ int bs_context_open(bs_context **out, const char *stats_path,
         return fail(error, 2, "Statistics database is unavailable");
     }
     (*out)->stats = setup.stats;
+    invalidate_cbz_covers(*out);
     return 0;
 }
 
