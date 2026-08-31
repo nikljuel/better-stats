@@ -128,6 +128,7 @@ int main(void)
     unlink("/tmp/bs_model_firmware_covers/1bb.png");
     rmdir("/tmp/bs_model_firmware_covers");
     assert(mkdir("/tmp/bs_model_cache", 0700) == 0);
+    assert(mkdir("/tmp/bs_model_cache/covers", 0700) == 0);
     assert(mkdir("/tmp/bs_model_firmware_covers", 0700) == 0);
     setenv("TZ", "UTC", 1);
     tzset();
@@ -158,7 +159,8 @@ int main(void)
     snprintf(update, sizeof(update),
              "UPDATE folders SET name='/tmp';UPDATE files SET filename='%s'"
              " WHERE book_id=1;UPDATE files SET filename='%s'"
-             " WHERE book_id=3", epub_name, fb2_name);
+             " WHERE book_id=3;INSERT INTO files VALUES"
+             " (99,1,x'ee',1,'%s',1)", epub_name, fb2_name, cbz_name);
     sql(explorer, update);
     sqlite3_close(explorer);
     make_epub(epub_path);
@@ -168,6 +170,10 @@ int main(void)
     assert(firmware_cover);
     assert(fputs("cover", firmware_cover) >= 0);
     assert(fclose(firmware_cover) == 0);
+    FILE *stale_cbz_cover = fopen("/tmp/bs_model_cache/covers/ee.jpg", "wb");
+    assert(stale_cbz_cover);
+    assert(fputs("stale", stale_cbz_cover) >= 0);
+    assert(fclose(stale_cbz_cover) == 0);
 
     tracker setup;
     assert(tracker_init(&setup, stats_path, explorer_path) == 0);
@@ -190,7 +196,19 @@ int main(void)
 
     bs_error error;
     bs_context *context = NULL;
+    assert(sqlite3_open(explorer_path, &explorer) == SQLITE_OK);
+    sql(explorer, "BEGIN EXCLUSIVE");
     assert(bs_context_open(&context, stats_path, explorer_path, &error) == 0);
+    assert(access("/tmp/bs_model_cache/covers/ee.jpg", F_OK) == 0);
+    assert(access("/tmp/bs_model_cache/cbz-cover-fix", F_OK) != 0);
+    bs_context_close(context);
+    sql(explorer, "ROLLBACK");
+    sqlite3_close(explorer);
+
+    context = NULL;
+    assert(bs_context_open(&context, stats_path, explorer_path, &error) == 0);
+    assert(access("/tmp/bs_model_cache/covers/ee.jpg", F_OK) != 0);
+    assert(access("/tmp/bs_model_cache/cbz-cover-fix", F_OK) == 0);
 
     bs_overall overall;
     assert(bs_load_overall(context, &overall, &error) == 0);

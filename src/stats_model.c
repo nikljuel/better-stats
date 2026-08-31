@@ -6,6 +6,7 @@
 #include "miniz.h"
 
 #include <ctype.h>
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -102,9 +103,12 @@ static void invalidate_cbz_covers(const bs_context *context)
     const char *sql =
         "SELECT lower(hex(f.fast_hash))"
         " FROM files f WHERE lower(f.filename) LIKE '%.cbz'";
+    int ok = 0;
     if (sqlite3_prepare_v2(db, sql, -1, &st, NULL) == SQLITE_OK) {
         static const char *exts[] = {".png", ".jpg", ".gif", ".bmp", ".img"};
-        while (sqlite3_step(st) == SQLITE_ROW) {
+        int rc;
+        ok = 1;
+        while ((rc = sqlite3_step(st)) == SQLITE_ROW) {
             const char *key = (const char *)sqlite3_column_text(st, 0);
             if (!key || !*key)
                 continue;
@@ -112,12 +116,17 @@ static void invalidate_cbz_covers(const bs_context *context)
             size_t e;
             for (e = 0; e < sizeof(exts) / sizeof(exts[0]); ++e) {
                 snprintf(path, sizeof(path), COVER_CACHE_DIR "/%s%s", key, exts[e]);
-                unlink(path);
+                if (unlink(path) != 0 && errno != ENOENT)
+                    ok = 0;
             }
         }
+        if (rc != SQLITE_DONE)
+            ok = 0;
     }
     sqlite3_finalize(st);
     sqlite3_close(db);
+    if (!ok)
+        return;
     FILE *f = fopen(marker, "w");
     if (f)
         fclose(f);
