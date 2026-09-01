@@ -7,7 +7,12 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-void stop_daemon(void) {}
+static int stop_result;
+
+int stop_daemon(void)
+{
+    return stop_result;
+}
 
 static int network_state = 2;
 static int failures_remaining;
@@ -81,6 +86,10 @@ void *QuickDownloadExt3(const char *url, int *size, int timeout,
 
 int main(void)
 {
+    stop_result = -1;
+    assert(bs_update_restart() == -1);
+    stop_result = 0;
+
     assert(bs_update_version_compare("v1.2.3", "v1.2.4") < 0);
     assert(bs_update_version_compare("v2.0.0", "v1.99.99") > 0);
     assert(bs_update_version_compare("v1.2.3", "v1.2.3") == 0);

@@ -10,6 +10,10 @@
 #include <time.h>
 #include <unistd.h>
 
+#ifndef PROC_ROOT
+#define PROC_ROOT "/proc"
+#endif
+
 static volatile sig_atomic_t running = 1;
 
 static void on_term(int sig)
@@ -21,7 +25,7 @@ static void on_term(int sig)
 static int daemon_pid_matches(int pid)
 {
     char path[64];
-    snprintf(path, sizeof(path), "/proc/%d/cmdline", pid);
+    snprintf(path, sizeof(path), PROC_ROOT "/%d/cmdline", pid);
     FILE *f = fopen(path, "rb");
     if (!f)
         return 0;
@@ -64,11 +68,21 @@ static int active_daemon_pid(void)
     return 0;
 }
 
-void stop_daemon(void)
+int stop_daemon(void)
 {
     int pid = active_daemon_pid();
-    if (pid > 0)
-        kill(pid, SIGTERM);
+    if (pid <= 0)
+        return 0;
+    if (kill(pid, SIGTERM) != 0)
+        return active_daemon_pid() ? -1 : 0;
+
+    const struct timespec slice = {0, 100 * 1000 * 1000};
+    for (int i = 0; i < 50; ++i) {
+        if (active_daemon_pid() != pid)
+            return 0;
+        nanosleep(&slice, NULL);
+    }
+    return active_daemon_pid() == pid ? -1 : 0;
 }
 
 static void write_pidfile(void)
@@ -140,11 +154,19 @@ int run_daemon(void)
     setsid();
     if (active_daemon_pid())
         return 0;
+
+    struct sigaction action;
+    memset(&action, 0, sizeof(action));
+    action.sa_handler = on_term;
+    sigemptyset(&action.sa_mask);
+    /* select() must return immediately so an update can replace this daemon. */
+    if (sigaction(SIGTERM, &action, NULL) != 0
+        || sigaction(SIGINT, &action, NULL) != 0)
+        return 1;
+
     mkdir(STATS_DIR, 0755);
     unlink(LEGACY_PIDFILE);
     write_pidfile();
-    signal(SIGTERM, on_term);
-    signal(SIGINT, on_term);
 
     tracker t;
     if (tracker_init(&t, stats_db_path(), explorer_db_path()) != 0) {

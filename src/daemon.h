@@ -8,8 +8,12 @@
 #define STATS_DIR "/mnt/ext1/system/pbreadstats"
 #endif
 #define STATS_DB STATS_DIR "/betterstats.db"
+#ifndef PIDFILE
 #define PIDFILE "/tmp/betterstats.pid"
+#endif
+#ifndef LEGACY_PIDFILE
 #define LEGACY_PIDFILE STATS_DIR "/betterstats.pid"
+#endif
 #ifndef COVER_DIR
 #define COVER_DIR "/mnt/ext1/system/cover_chache/hashed"
 #endif
@@ -25,7 +29,7 @@ extern "C" {
 #endif
 
 int run_daemon(void);
-void stop_daemon(void);
+int stop_daemon(void);
 const char *stats_db_path(void);
 const char *explorer_db_path(void);
 

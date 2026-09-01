@@ -31,6 +31,14 @@ test:
 	cc $(CFLAGS) -o build/test_tracker test/test_tracker.c \
 	  src/tracker.c src/stats_db.c -lsqlite3
 	./build/test_tracker
+	cc $(CFLAGS) -Itest/include -Isrc \
+	  -DSTATS_DIR='"/tmp/bs_daemon_test"' \
+	  -DPIDFILE='"/tmp/bs_daemon_test/daemon.pid"' \
+	  -DLEGACY_PIDFILE='"/tmp/bs_daemon_test/legacy.pid"' \
+	  -DPROC_ROOT='"/tmp/bs_daemon_test/proc"' \
+	  -o build/test_daemon test/test_daemon.c src/daemon.c src/tracker.c src/paths.c \
+	  -lsqlite3
+	./build/test_daemon
 	cc $(CFLAGS) -Isrc -o build/test_file_handler_config \
 	  test/test_file_handler_config.c src/file_handler_config.c
 	./build/test_file_handler_config

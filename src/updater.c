@@ -717,7 +717,8 @@ int bs_update_install(bs_update_info *info)
 
 int bs_update_restart(void)
 {
-    stop_daemon();
+    if (stop_daemon() != 0)
+        return -1;
 
     pid_t child = fork();
     if (child != 0)
