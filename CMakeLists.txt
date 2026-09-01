@@ -11,6 +11,8 @@ pocketbook_add_app(BetterStats
     qt/src/main.cpp
     qt/src/inkview_bridge.cpp
     qt/src/stats_bridge.cpp
+    qt/src/hardcover_bridge.cpp
+    qt/src/hardcover_worker.cpp
     qt/src/installer.cpp
     src/tracker.c
     src/stats_db.c
@@ -35,6 +37,17 @@ target_include_directories(BetterStats PRIVATE qt/third_party src qt/src)
 target_compile_definitions(BetterStats PRIVATE
   SQLITE_OMIT_LOAD_EXTENSION SQLITE_THREADSAFE=1)
 target_link_libraries(BetterStats PRIVATE m pthread dl)
+
+# Hardcover sync needs QNetworkAccessManager. Deliberately NOT calling
+# find_package(Qt6 ... COMPONENTS Network): pocketbook-sdk-qt6's own
+# add_subdirectory() above already hand-declares Qt6::<module> targets
+# directly from .so files in the toolchain sysroot (confirmed by reading
+# its own cmake/PocketBookQt.cmake) - Network is already one of its
+# candidate modules. Calling find_package a second time conflicts with
+# that (a real CMake/Qt bug: "some but not all targets in this export set
+# were already defined"). Linking directly against the already-declared
+# target instead.
+target_link_libraries(BetterStats PRIVATE Qt6::Network)
 
 # Qt-free fallback and daemon. The default builder produces the classic
 # PocketBook softfp ABI; the hardfp target builds the same source list separately.

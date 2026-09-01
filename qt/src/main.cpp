@@ -14,6 +14,7 @@
 #include "inkview_bridge.h"
 #include "installer.h"
 #include "stats_bridge.h"
+#include "hardcover_bridge.h"
 
 namespace {
 
@@ -68,12 +69,14 @@ int main(int argc, char *argv[])
         QGuiApplication::setFont(QFont(fontFamily));
 
     StatsBridge stats;
+    HardcoverBridge hardcover;
 
     QQmlApplicationEngine engine;
     engine.addImageProvider(QStringLiteral("inverted-cover"),
                             new InvertedCoverProvider);
     engine.addImportPath(QString::fromUtf8(kQmlPath));
     engine.rootContext()->setContextProperty(QStringLiteral("stats"), &stats);
+    engine.rootContext()->setContextProperty(QStringLiteral("hardcover"), &hardcover);
     engine.rootContext()->setContextProperty(QStringLiteral("deviceLang"),
                                               inkViewLang());
     engine.rootContext()->setContextProperty(QStringLiteral("screenW"), screen.width);

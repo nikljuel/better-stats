@@ -2,6 +2,7 @@
 #include "daemon.h"
 #include "tracker.h"
 #include <signal.h>
+#include <sqlite3.h>
 #include <stdio.h>
 #include <string.h>
 #include <sys/inotify.h>
@@ -11,6 +12,92 @@
 #include <unistd.h>
 
 static volatile sig_atomic_t running = 1;
+
+/* Hardcover sync integration, ported from a downstream fork - see its own
+ * README/PR description for the full feature. Completion detection needs
+ * the explorer-3.db + hardcoversync.db round trip far less often than
+ * reading-progress tracking does, so it runs on its own separate,
+ * hourly cadence rather than every poll. */
+#define HARDCOVER_CHECK_SECONDS 3600
+
+/* Checks for linked books that have gone complete since we last looked,
+ * flagging them in hardcoversync.db with a plain SQLite write - no
+ * networking happens here at all. The Qt app's own
+ * checkPendingFinishConfirm() (called once per app launch, not on a
+ * timer) is the only thing that ever actually talks to Hardcover, and
+ * only once you're looking at the resulting confirmation. Silently does
+ * nothing if hardcoversync.db or its "links" table doesn't exist yet
+ * (e.g. the app has never been opened, so nothing has ever been linked) -
+ * this daemon starts at boot and may well run before that first launch. */
+static void check_hardcover_completions(const char *explorer_path)
+{
+    sqlite3 *linkDb = NULL;
+    if (sqlite3_open(STATS_DIR "/hardcoversync.db", &linkDb) != SQLITE_OK) {
+        if (linkDb)
+            sqlite3_close(linkDb);
+        return;
+    }
+    sqlite3_busy_timeout(linkDb, 1000);
+
+    sqlite3_stmt *st = NULL;
+    const char *sql =
+        "SELECT book_id FROM links WHERE user_book_id != 0"
+        " AND (finished_at IS NULL OR finished_at = '')"
+        " AND IFNULL(pending_finish_confirm,0) = 0";
+    if (sqlite3_prepare_v2(linkDb, sql, -1, &st, NULL) != SQLITE_OK) {
+        sqlite3_close(linkDb);
+        return; /* table/column doesn't exist yet, or some other issue */
+    }
+
+    /* Collect candidates before issuing any writes, rather than
+     * interleaving reads and writes against the same table mid-iteration -
+     * simpler to reason about, and this table is tiny either way. */
+    sqlite3_int64 candidates[64];
+    int n = 0;
+    while (n < 64 && sqlite3_step(st) == SQLITE_ROW)
+        candidates[n++] = sqlite3_column_int64(st, 0);
+    sqlite3_finalize(st);
+
+    if (n == 0) {
+        sqlite3_close(linkDb);
+        return;
+    }
+
+    sqlite3 *exp = NULL;
+    if (sqlite3_open_v2(explorer_path, &exp, SQLITE_OPEN_READONLY, NULL) != SQLITE_OK) {
+        sqlite3_close(linkDb);
+        if (exp)
+            sqlite3_close(exp);
+        return;
+    }
+    sqlite3_busy_timeout(exp, 1000);
+
+    for (int i = 0; i < n; i++) {
+        sqlite3_stmt *cst = NULL;
+        int completed = 0;
+        if (sqlite3_prepare_v2(exp,
+                "SELECT IFNULL(completed,0) FROM books_settings WHERE bookid=?1 AND profileid=1",
+                -1, &cst, NULL) == SQLITE_OK) {
+            sqlite3_bind_int64(cst, 1, candidates[i]);
+            if (sqlite3_step(cst) == SQLITE_ROW)
+                completed = sqlite3_column_int(cst, 0);
+        }
+        sqlite3_finalize(cst);
+
+        if (completed) {
+            sqlite3_stmt *ust = NULL;
+            if (sqlite3_prepare_v2(linkDb,
+                    "UPDATE links SET pending_finish_confirm = 1 WHERE book_id = ?1",
+                    -1, &ust, NULL) == SQLITE_OK) {
+                sqlite3_bind_int64(ust, 1, candidates[i]);
+                sqlite3_step(ust);
+            }
+            sqlite3_finalize(ust);
+        }
+    }
+    sqlite3_close(exp);
+    sqlite3_close(linkDb);
+}
 
 static void on_term(int sig)
 {
@@ -155,6 +242,13 @@ int run_daemon(void)
     const int wfd = watch_library(t.explorer_path);
     time_t last_loop = 0;
     int64_t present = 0;
+    /* Starts at the full interval, not 0, so the very first loop iteration
+     * checks immediately rather than waiting a whole hour after daemon
+     * startup before ever looking. Incremented by the actual, measured gap
+     * each time (not a fixed POLL_SECONDS assumption), since the loop can
+     * return much sooner than that (an inotify wakeup) or much later (the
+     * process was suspended). */
+    time_t since_hardcover_check = HARDCOVER_CHECK_SECONDS;
     while (running) {
         pb_state s;
         /* Our own presence is the measurement. A device being read runs this
@@ -170,6 +264,13 @@ int run_daemon(void)
 
         if (tracker_read_state(t.explorer_path, &s) == 0)
             tracker_observe(&t, &s, present);
+
+        since_hardcover_check += gap;
+        if (since_hardcover_check >= HARDCOVER_CHECK_SECONDS) {
+            check_hardcover_completions(t.explorer_path);
+            since_hardcover_check = 0;
+        }
+
         wait_for_library_change(wfd);
     }
     {

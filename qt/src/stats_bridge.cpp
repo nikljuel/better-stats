@@ -253,6 +253,7 @@ QVariantList StatsBridge::readingBooks()
         const bs_current_book &b = list.books[i];
         QVariantMap m;
         m[QStringLiteral("ok")] = b.ok != 0;
+        m[QStringLiteral("bookId")] = qlonglong(b.bookid);
         m[QStringLiteral("title")] = QString::fromUtf8(b.title);
         m[QStringLiteral("author")] = QString::fromUtf8(b.author);
         m[QStringLiteral("percent")] = b.percent;
