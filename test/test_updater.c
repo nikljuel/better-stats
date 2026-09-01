@@ -188,19 +188,19 @@ int main(void)
     current = fopen(
         "/tmp/bs_update_install/applications/betterstats/current", "w");
     assert(current != NULL);
-    assert(fputs("v1.3.1-dirty\n", current) >= 0);
+    assert(fputs("v1.3.2-dirty\n", current) >= 0);
     assert(fclose(current) == 0);
     assert(bs_update_release_notes_pending());
     assert(bs_update_release_notes("de") != NULL);
-    assert(strstr(bs_update_release_notes("de"), "CBZ") != NULL);
-    assert(strstr(bs_update_release_notes("en"), "CBZ") != NULL);
+    assert(strstr(bs_update_release_notes("de"), "Tracking") != NULL);
+    assert(strstr(bs_update_release_notes("en"), "tracking") != NULL);
     assert(bs_update_mark_release_notes_seen() == 0);
     assert(!bs_update_release_notes_pending());
 
     current = fopen(
         "/tmp/bs_update_install/applications/betterstats/current", "w");
     assert(current != NULL);
-    assert(fputs("v1.3.1\n", current) >= 0);
+    assert(fputs("v1.3.2\n", current) >= 0);
     assert(fclose(current) == 0);
     assert(bs_update_release_notes_pending());
     assert(bs_update_mark_release_notes_seen() == 0);
@@ -208,14 +208,14 @@ int main(void)
 
     FILE *seen = fopen("/tmp/bs_update_test/release-notes-seen", "w");
     assert(seen != NULL);
-    assert(fputs("v1.3.2\n", seen) >= 0);
+    assert(fputs("v1.3.3\n", seen) >= 0);
     assert(fclose(seen) == 0);
     assert(!bs_update_release_notes_pending());
 
     current = fopen(
         "/tmp/bs_update_install/applications/betterstats/current", "w");
     assert(current != NULL);
-    assert(fputs("v1.3.2\n", current) >= 0);
+    assert(fputs("v1.3.3\n", current) >= 0);
     assert(fclose(current) == 0);
     assert(!bs_update_release_notes_pending());
 

@@ -30,21 +30,15 @@
     "https://api.github.com/repos/nikljuel/better-stats/releases/latest"
 
 /* Filled immediately before the release; empty text keeps the dialog hidden. */
-static const char *release_notes_version = "v1.3.1";
+static const char *release_notes_version = "v1.3.2";
 static const char *release_notes_de =
-    "Neu in 1.3.1:\n"
-    "- CBZ-Cover zeigen jetzt das erste Bild (alphabetisch) statt einer "
-    "zufälligen Seite aus dem Archiv.\n"
-    "- Autostart funktioniert jetzt auch wenn KOReader installiert ist. "
-    "Die KOReader-Zuordnung bleibt als Standard erhalten. "
-    "Tracking in KOReader wird noch nicht unterstützt.";
+    "Neu in 1.3.2:\n"
+    "- Ein Fehler wurde behoben, durch den das automatische Tracking nach "
+    "einem Update-Neustart ausfallen konnte.";
 static const char *release_notes_en =
-    "What's new in 1.3.1:\n"
-    "- CBZ covers now show the first image (alphabetically) instead of a "
-    "random page from the archive.\n"
-    "- Autostart now works when KOReader is installed. "
-    "KOReader remains the default reader for its assigned formats. "
-    "Tracking inside KOReader is not yet supported.";
+    "What's new in 1.3.2:\n"
+    "- Fixed an issue that could prevent automatic tracking from resuming "
+    "after an update restart.";
 
 static const char *release_files[] = {
     "betterstats-qt-softfp",
