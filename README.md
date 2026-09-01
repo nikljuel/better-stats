@@ -58,7 +58,10 @@ backgrounds the daemon and then `exec`s the stock reader, so it *becomes* the
 reader in the same process and task slot the firmware already created. If the
 daemon fails to start for any reason the `exec` still runs, so the tracking hook
 can never keep a book from opening. PDF and other file types are unchanged.
-KOReader associations are detected but deliberately left untouched for now.
+Existing reader order stays intact. Better Stats is added directly before the
+stock reader, so a preceding KOReader association remains the default. A
+partial user `extensions.cfg` inherits missing EPUB/FB2/CBZ entries from the
+firmware file; comments and unrelated associations are preserved.
 On some PocketBook firmware the handler prevents G-sensor rotation inside the
 reader. Turning Autostart off in Settings removes the handler; open Better Stats
 once after each reboot to start tracking manually while keeping rotation. The
@@ -113,12 +116,14 @@ On first launch Better Stats also sets up EPUB/FB2/CBZ autostart, because the
 daemon otherwise does not start automatically after a reboot. It writes a
 marked handler to `system/bin/` and puts it ahead of the stock reader in the user
 `extensions.cfg`, backing that file up first
-(`extensions.cfg.betterstats-backup`). PDF and other file types are untouched,
-and existing KOReader associations are left alone. Autostart is enabled by
-default and can be disabled persistently in Settings. No immediate reboot is
-needed after installation or after enabling it: opening Better Stats has already
-started the daemon, and the handler is ready for the next normal reboot. Turning
-Autostart off shows a restart prompt so the firmware drops its cached handler.
+(`extensions.cfg.betterstats-backup`). PDF and other file types are untouched.
+If KOReader is already associated with one of these formats, it remains the
+default and Better Stats is inserted directly before the stock reader. Autostart
+is enabled by default and can be disabled persistently in Settings. No immediate
+reboot is needed after installation or after enabling it: opening Better Stats
+has already started the daemon, and the handler is ready for the next normal
+reboot. Turning Autostart off shows a restart prompt so the firmware drops its
+cached handler.
 
 When the Qt UI starts, it registers a custom launcher icon by adding one entry
 to `system/config/desktop/view.json` and saving a backup next to it

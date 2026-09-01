@@ -431,11 +431,18 @@ Window {
             styledFont: FontStyles.BodyS
             color: GlobalValues.defaultDisabledTextColor
             wrapMode: Text.Wrap
-            text: settingsDialog.status.enabled === true
-                ? Tr.t("Tracking startet automatisch bei EPUB, FB2 und CBZ. Auf manchen Geräten kann dadurch die G-Sensor-Drehung im Reader ausfallen.",
-                       "Tracking starts automatically for EPUB, FB2, and CBZ. On some devices this can disable G-sensor rotation in the reader.")
-                : Tr.t("Öffne Better Stats einmal nach jedem Neustart, um Tracking zu starten. Bücher öffnen direkt im Stock-Reader und die G-Sensor-Drehung bleibt verfügbar.",
-                       "Open Better Stats once after each restart to start tracking. Books open directly in the stock reader and G-sensor rotation remains available.")
+            text: settingsDialog.status.message === "KOReader association detected"
+                  || settingsDialog.status.message === "Another reader is registered"
+                ? settingsDialog.status.enabled === true
+                  ? Tr.t("Der andere Reader bleibt Standard. Der Better-Stats-Handler ist zusätzlich vor dem Stock-Reader installiert.",
+                         "The other reader remains the default. The Better Stats handler is also installed before the stock reader.")
+                  : Tr.t("Der andere Reader bleibt Standard. Beim Aktivieren bleibt seine Zuordnung unverändert.",
+                         "The other reader remains the default. Enabling leaves its association unchanged.")
+                : settingsDialog.status.enabled === true
+                  ? Tr.t("Tracking startet automatisch bei EPUB, FB2 und CBZ. Auf manchen Geräten kann dadurch die G-Sensor-Drehung im Reader ausfallen.",
+                         "Tracking starts automatically for EPUB, FB2, and CBZ. On some devices this can disable G-sensor rotation in the reader.")
+                  : Tr.t("Öffne Better Stats einmal nach jedem Neustart, um Tracking zu starten. Bücher öffnen direkt im Stock-Reader und die G-Sensor-Drehung bleibt verfügbar.",
+                         "Open Better Stats once after each restart to start tracking. Books open directly in the stock reader and G-sensor rotation remains available.")
         }
 
         StyledText {
@@ -446,11 +453,11 @@ Window {
             color: GlobalValues.defaultDisabledTextColor
             wrapMode: Text.Wrap
             text: settingsDialog.status.message === "KOReader association detected"
-                ? Tr.t("Grund: KOReader ist für eines der unterstützten Formate eingetragen. Die Unterstützung folgt später.",
-                       "Reason: KOReader is registered for one of the supported formats. Support will follow later.")
+                ? Tr.t("KOReader ist eingetragen. Beim Aktivieren bleibt KOReader Standard.",
+                       "KOReader is registered. Enabling keeps it as the default.")
                 : settingsDialog.status.message === "Another reader is registered"
-                ? Tr.t("Grund: Ein anderer Reader ist für eines der unterstützten Formate eingetragen. Better Stats lässt ihn unangetastet.",
-                       "Reason: another reader is registered for one of the supported formats. Better Stats leaves it alone.")
+                ? Tr.t("Ein anderer Reader ist eingetragen. Beim Aktivieren bleibt er Standard.",
+                       "Another reader is registered. Enabling keeps it as the default.")
                 : Tr.t("Grund: ", "Reason: ") + settingsDialog.status.message
         }
 
