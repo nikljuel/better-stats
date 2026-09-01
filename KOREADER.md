@@ -1,6 +1,6 @@
 # Experimental KOReader support
 
-This work lives only on the `koreader` branch and is not ready for a release.
+Coexistence support shipped in v1.3.1. Future phases are tracked below.
 
 ## Implemented
 
