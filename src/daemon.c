@@ -149,6 +149,18 @@ static void wait_for_library_change(int wfd)
     }
 }
 
+static int add_awake_time(int64_t *present, int64_t *last_loop)
+{
+    struct timespec now;
+    if (clock_gettime(CLOCK_MONOTONIC, &now) != 0)
+        return -1;
+    const int64_t seconds = (int64_t)now.tv_sec;
+    if (*last_loop >= 0 && seconds > *last_loop)
+        *present += seconds - *last_loop;
+    *last_loop = seconds;
+    return 0;
+}
+
 int run_daemon(void)
 {
     setsid();
@@ -175,35 +187,31 @@ int run_daemon(void)
     }
     tracker_recover(&t);
     const int wfd = watch_library(t.explorer_path);
-    time_t last_loop = 0;
+    int64_t last_loop = -1;
     int64_t present = 0;
+    int status = 0;
     while (running) {
         pb_state s;
-        /* Our own presence is the measurement. A device being read runs this
-         * loop every few seconds; a locked one wakes only every few minutes and
-         * the gap blows past PRESENCE_GAP_SECONDS. Summing the short gaps
-         * therefore measures the time somebody was actually at the book, which
-         * the firmware's two endpoints cannot distinguish from standby. */
-        const time_t loop_now = time(NULL);
-        const time_t gap = last_loop ? loop_now - last_loop : 0;
-        if (gap > 0 && gap <= PRESENCE_GAP_SECONDS)
-            present += gap;
-        last_loop = loop_now;
+        /* CLOCK_MONOTONIC advances while the device is awake but not while it
+         * is suspended, so delayed loops no longer need a guessed cutoff. */
+        if (add_awake_time(&present, &last_loop) != 0) {
+            perror("Better Stats daemon: clock_gettime");
+            status = 1;
+            break;
+        }
 
         if (tracker_read_state(t.explorer_path, &s) == 0)
             tracker_observe(&t, &s, present);
         wait_for_library_change(wfd);
     }
-    {
-        const time_t now = time(NULL);
-        const time_t gap = last_loop ? now - last_loop : 0;
-        if (gap > 0 && gap <= PRESENCE_GAP_SECONDS)
-            present += gap;
-        tracker_flush(&t, present, now);
+    if (status == 0 && add_awake_time(&present, &last_loop) != 0) {
+        perror("Better Stats daemon: clock_gettime");
+        status = 1;
     }
+    tracker_flush(&t, present, time(NULL));
     if (wfd >= 0)
         close(wfd);
     tracker_close(&t);
     unlink(PIDFILE);
-    return 0;
+    return status;
 }

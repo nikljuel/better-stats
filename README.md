@@ -47,10 +47,11 @@ kind of stats screen you'd expect from Kobo or Fable.
 A small background daemon watches the firmware's
 library database (`explorer-3.db`) **read-only** via inotify (falling back to a
 30-second poll where inotify is unavailable) and derives reading sessions from
-the book's open time and last position update. Idle gaps (standby, long pauses)
-are capped so they don't count as reading time. If the daemon wasn't running,
-Better Stats reconstructs a best-effort estimate of the last session per book on
-the next launch. The firmware does not retain enough timestamps for an exact
+the book's open time and last position update. Active time uses Linux's monotonic
+clock, which stops during system suspend; a per-page ceiling limits awake time
+with an unattended open book. If the daemon wasn't running, Better Stats
+reconstructs a best-effort estimate of the last session per book on the next
+launch. The firmware does not retain enough timestamps for an exact
 reconstruction, so short sessions or pauses can still be missed.
 
 Autostart installs a small EPUB/FB2/CBZ file handler: a shell script that

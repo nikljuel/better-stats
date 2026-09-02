@@ -5,14 +5,6 @@
 #include <sqlite3.h>
 
 #define POLL_SECONDS 30
-/* How long a gap between two daemon loops may be and still count as the daemon
- * having been continuously present. Reading time is the sum of such gaps: the
- * firmware never reports page turns, but a locked device wakes only every few
- * minutes while a device being read runs the loop every few seconds, so
- * presence is the signal. Measured on a PB710: 4-6 runs/min while reading
- * against 0.6 while locked. Derived from the poll interval, not fitted to one
- * device -- an awake daemon comes round at least every POLL_SECONDS. */
-#define PRESENCE_GAP_SECONDS (4 * POLL_SECONDS)
 /* Ceiling on what one page of reading may be worth, borrowed from the
  * winst0niuss fork. Presence alone cannot tell reading from a book lying open
  * on an awake device; the pages actually turned can. Loose on purpose: the
@@ -54,10 +46,10 @@ int tracker_init(tracker *t, const char *stats_path, const char *explorer_path);
 int tracker_read_state(const char *explorer_path, pb_state *out);
 /* Backfills sessions created while no daemon was running. */
 int tracker_recover(tracker *t);
-/* One poll tick. present is the daemon's own cumulative count of seconds it was
- * demonstrably running (see PRESENCE_GAP_SECONDS). The firmware's endpoints
- * span standby as well as reading and cannot tell them apart, so the session's
- * time comes from this counter rather than from the endpoints. */
+/* One poll tick. present is cumulative CLOCK_MONOTONIC time while the device
+ * was awake; that clock stops during system suspend. The firmware's endpoints
+ * span suspend as well as reading, so the session's time comes from this
+ * counter rather than from the endpoints. */
 int tracker_observe(tracker *t, const pb_state *s, int64_t present);
 /* Writes the current session through end_time. Call before any code path that
  * would lose the in-memory presence counter (book switch, daemon exit). Safe
