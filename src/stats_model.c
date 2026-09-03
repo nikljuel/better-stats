@@ -1225,6 +1225,63 @@ void bs_reading_list_free(bs_reading_list *list)
     memset(list, 0, sizeof(*list));
 }
 
+int bs_load_today_sessions(bs_context *context, bs_session_list *out,
+                           bs_error *error)
+{
+    clear_error(error);
+    if (!context || !out)
+        return fail(error, 1, "Invalid session-list request");
+    memset(out, 0, sizeof(*out));
+    const char *sql =
+        "SELECT IFNULL(b.title,'?'),s.start_time,s.end_time,s.active_seconds,"
+        " s.pages_start,s.pages_end,s.pages_moved"
+        " FROM sessions s LEFT JOIN books b ON b.book_id=s.book_id"
+        " WHERE date(s.end_time,'unixepoch','localtime')=date('now','localtime')"
+        " ORDER BY s.start_time DESC,s.book_id DESC";
+    sqlite3_stmt *statement = NULL;
+    if (sqlite3_prepare_v2(context->stats, sql, -1, &statement, NULL) != SQLITE_OK)
+        return sql_fail(error, context->stats, "Could not load today's sessions");
+    int rc;
+    while ((rc = sqlite3_step(statement)) == SQLITE_ROW) {
+        bs_session *grown = realloc(out->sessions,
+                                    (out->count + 1) * sizeof(*grown));
+        if (!grown) {
+            sqlite3_finalize(statement);
+            bs_session_list_free(out);
+            return fail(error, 4, "Out of memory");
+        }
+        out->sessions = grown;
+        bs_session *session = &out->sessions[out->count++];
+        memset(session, 0, sizeof(*session));
+        snprintf(session->title, sizeof(session->title), "%s",
+                 sqlite3_column_text(statement, 0));
+        session->start_time = sqlite3_column_int64(statement, 1);
+        session->end_time = sqlite3_column_int64(statement, 2);
+        session->active_seconds = sqlite3_column_int64(statement, 3);
+        session->pages_known = sqlite3_column_type(statement, 4) != SQLITE_NULL
+            && sqlite3_column_type(statement, 5) != SQLITE_NULL;
+        if (session->pages_known) {
+            session->pages_start = sqlite3_column_int(statement, 4);
+            session->pages_end = sqlite3_column_int(statement, 5);
+        }
+        session->pages_moved = sqlite3_column_int(statement, 6);
+    }
+    sqlite3_finalize(statement);
+    if (rc != SQLITE_DONE) {
+        bs_session_list_free(out);
+        return sql_fail(error, context->stats, "Could not load today's sessions");
+    }
+    return 0;
+}
+
+void bs_session_list_free(bs_session_list *list)
+{
+    if (!list)
+        return;
+    free(list->sessions);
+    memset(list, 0, sizeof(*list));
+}
+
 int bs_load_year(bs_context *context, int year, bs_year *out, bs_error *error)
 {
     clear_error(error);

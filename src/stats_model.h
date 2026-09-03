@@ -103,6 +103,26 @@ int bs_load_reading_books(bs_context *context, bs_reading_list *out,
                           bs_error *error);
 void bs_reading_list_free(bs_reading_list *list);
 
+typedef struct {
+    char title[BS_TITLE_MAX];
+    int64_t start_time;
+    int64_t end_time;
+    int64_t active_seconds;
+    int pages_start;
+    int pages_end;
+    int pages_moved;
+    int pages_known;
+} bs_session;
+
+typedef struct {
+    bs_session *sessions;
+    size_t count;
+} bs_session_list;
+
+int bs_load_today_sessions(bs_context *context, bs_session_list *out,
+                           bs_error *error);
+void bs_session_list_free(bs_session_list *list);
+
 void bs_month_free(bs_month *month);
 void bs_year_books_free(bs_year_books *year);
 

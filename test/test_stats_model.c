@@ -303,6 +303,40 @@ int main(void)
                   "/tmp/bs_model_firmware_covers/1bb.png") == 0);
     bs_year_books_free(&books);
 
+    /* Diagnostic list includes every row ending today, including zero-time
+     * rows, and leaves yesterday out. */
+    sqlite3 *stats = NULL;
+    assert(sqlite3_open(stats_path, &stats) == SQLITE_OK);
+    sql(stats,
+        "DELETE FROM sessions;"
+        "INSERT INTO sessions(book_id,start_time,end_time,active_seconds,"
+        " pages_start,pages_end,pages_moved) VALUES"
+        " (1,strftime('%s','now','localtime','start of day','+9 hours','utc'),"
+        " strftime('%s','now','localtime','start of day','+9 hours','+5 minutes','utc'),"
+        " 180,25,27,3),"
+        " (2,strftime('%s','now','localtime','start of day','+10 hours','utc'),"
+        " strftime('%s','now','localtime','start of day','+10 hours','+30 seconds','utc'),"
+        " 0,NULL,NULL,0),"
+        " (3,strftime('%s','now','localtime','start of day','-10 minutes','utc'),"
+        " strftime('%s','now','localtime','start of day','-1 second','utc'),"
+        " 300,1,2,2)");
+    sqlite3_close(stats);
+
+    bs_session_list sessions;
+    assert(bs_load_today_sessions(context, &sessions, &error) == 0);
+    assert(sessions.count == 2);
+    assert(strcmp(sessions.sessions[0].title, "Beta") == 0);
+    assert(sessions.sessions[0].end_time - sessions.sessions[0].start_time == 30);
+    assert(sessions.sessions[0].active_seconds == 0);
+    assert(!sessions.sessions[0].pages_known);
+    assert(strcmp(sessions.sessions[1].title, "Alpha") == 0);
+    assert(sessions.sessions[1].active_seconds == 180);
+    assert(sessions.sessions[1].pages_known);
+    assert(sessions.sessions[1].pages_start == 25);
+    assert(sessions.sessions[1].pages_end == 27);
+    assert(sessions.sessions[1].pages_moved == 3);
+    bs_session_list_free(&sessions);
+
     bs_context_close(context);
     unlink("/tmp/bs_model_cache/covers/aa.png");
     unlink("/tmp/bs_model_cache/covers/dd.png");

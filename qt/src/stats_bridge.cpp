@@ -1,6 +1,7 @@
 #include "stats_bridge.h"
 
 #include <QCoreApplication>
+#include <QDateTime>
 #include <QEventLoop>
 #include <QTimer>
 #include <QUrl>
@@ -263,6 +264,43 @@ QVariantList StatsBridge::readingBooks()
         out.append(m);
     }
     bs_reading_list_free(&list);
+    return out;
+}
+
+QVariantList StatsBridge::todaySessions()
+{
+    bs_session_list list{};
+    bs_error error{};
+    if (bs_load_today_sessions(context_, &list, &error) != 0)
+        return {};
+    QVariantList out;
+    for (size_t i = 0; i < list.count; ++i) {
+        const bs_session &session = list.sessions[i];
+        QVariantMap row;
+        row[QStringLiteral("title")] = QString::fromUtf8(session.title);
+        row[QStringLiteral("start")] =
+            QDateTime::fromSecsSinceEpoch(session.start_time).toLocalTime()
+                .toString(QStringLiteral("HH:mm:ss"));
+        row[QStringLiteral("end")] =
+            QDateTime::fromSecsSinceEpoch(session.end_time).toLocalTime()
+                .toString(QStringLiteral("HH:mm:ss"));
+        row[QStringLiteral("activeSecs")] = qlonglong(session.active_seconds);
+        row[QStringLiteral("spanSecs")] = qlonglong(
+            session.end_time > session.start_time
+                ? session.end_time - session.start_time : 0);
+        if (session.pages_known) {
+            row[QStringLiteral("pages")] = QStringLiteral("%1\u2192%2 (%3)")
+                .arg(session.pages_start).arg(session.pages_end)
+                .arg(session.pages_moved);
+        } else if (session.pages_moved > 0) {
+            row[QStringLiteral("pages")] = QStringLiteral("\u2013 (%1)")
+                .arg(session.pages_moved);
+        } else {
+            row[QStringLiteral("pages")] = QStringLiteral("\u2013");
+        }
+        out.append(row);
+    }
+    bs_session_list_free(&list);
     return out;
 }
 

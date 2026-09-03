@@ -11,6 +11,7 @@ Window {
     height: screenH - panelH
     color: GlobalValues.defaultBackgroundColor
     title: "Better Stats"
+    property int diagnosticTapCount: 0
 
     Component.onCompleted: {
         releaseNotesDialog.message = stats.releaseNotes(deviceLang)
@@ -61,6 +62,33 @@ Window {
                 }
             }
         }
+    }
+
+    Item {
+        anchors.top: appHeader.top
+        anchors.bottom: appHeader.bottom
+        anchors.horizontalCenter: appHeader.horizontalCenter
+        width: appHeader.width * 0.5
+        z: appHeader.z + 1
+
+        TapHandler {
+            onTapped: {
+                root.diagnosticTapCount++
+                diagnosticTapReset.restart()
+                if (root.diagnosticTapCount === 5) {
+                    diagnosticTapReset.stop()
+                    root.diagnosticTapCount = 0
+                    sessionDialog.sessions = stats.todaySessions()
+                    sessionDialog.visible = true
+                }
+            }
+        }
+    }
+
+    Timer {
+        id: diagnosticTapReset
+        interval: 3000
+        onTriggered: root.diagnosticTapCount = 0
     }
 
     // Firmware-style tab bar: four large zones, active tab underlined.
@@ -135,7 +163,9 @@ Window {
             if (event.key === Qt.Key_Back || event.key === Qt.Key_Escape
                     || event.key === Qt.Key_Home) {
                 event.accepted = true;
-                if (releaseNotesDialog.visible)
+                if (sessionDialog.visible)
+                    sessionDialog.dismiss()
+                else if (releaseNotesDialog.visible)
                     releaseNotesDialog.dismiss()
                 else
                     Qt.quit();
@@ -170,6 +200,118 @@ Window {
             if (stats.updateState === "available" && !settingsDialog.visible
                     && !releaseNotesDialog.visible)
                 updateDialog.visible = true
+        }
+    }
+
+    PanelDialog {
+        id: sessionDialog
+
+        property var sessions: []
+        readonly property var columns: [
+            { text: Tr.t("Start", "Start"), width: 0.13 },
+            { text: Tr.t("Ende", "End"), width: 0.13 },
+            { text: Tr.t("Getrackt", "Tracked"), width: 0.15 },
+            { text: Tr.t("Spanne", "Span"), width: 0.14 },
+            { text: Tr.t("Seiten", "Pages"), width: 0.20 },
+            { text: Tr.t("Buch", "Book"), width: 0.25 }
+        ]
+        title: Tr.t("Sessions heute", "Today's sessions")
+
+        function fmtDuration(value) {
+            var secs = Math.max(0, Number(value) || 0)
+            var hours = Math.floor(secs / 3600)
+            var minutes = Math.floor((secs % 3600) / 60)
+            var seconds = Math.floor(secs % 60)
+            if (hours > 0)
+                return hours + "h " + (minutes < 10 ? "0" : "") + minutes
+                       + "m " + (seconds < 10 ? "0" : "") + seconds + "s"
+            if (minutes > 0)
+                return minutes + "m " + (seconds < 10 ? "0" : "")
+                       + seconds + "s"
+            return seconds + "s"
+        }
+
+        Row {
+            width: parent.width
+            height: Global.dp(34)
+
+            Repeater {
+                model: sessionDialog.columns
+
+                StyledText {
+                    required property var modelData
+                    width: parent.width * modelData.width
+                    height: parent.height
+                    verticalAlignment: Text.AlignVCenter
+                    styledFont: FontStyles.BodySBold
+                    color: GlobalValues.defaultTextColor
+                    elide: Text.ElideRight
+                    text: modelData.text
+                }
+            }
+        }
+
+        Rectangle {
+            width: parent.width
+            height: GlobalValues.defaultSolidSeparatorThickness
+            color: GlobalValues.defaultBorderColor
+        }
+
+        StyledText {
+            visible: sessionDialog.sessions.length === 0
+            width: parent.width
+            styledFont: FontStyles.Body
+            color: GlobalValues.defaultDisabledTextColor
+            text: Tr.t("Heute wurden keine Sessions gespeichert.",
+                       "No sessions were stored today.")
+        }
+
+        Repeater {
+            model: sessionDialog.sessions
+
+            Item {
+                id: sessionRow
+
+                required property var modelData
+                property var values: [
+                    modelData.start,
+                    modelData.end,
+                    sessionDialog.fmtDuration(modelData.activeSecs),
+                    sessionDialog.fmtDuration(modelData.spanSecs),
+                    modelData.pages,
+                    modelData.title
+                ]
+                width: parent.width
+                height: Global.dp(40)
+
+                Row {
+                    anchors.fill: parent
+
+                    Repeater {
+                        model: sessionDialog.columns
+
+                        StyledText {
+                            required property var modelData
+                            required property int index
+                            width: parent.width * modelData.width
+                            height: parent.height
+                            verticalAlignment: Text.AlignVCenter
+                            styledFont: FontStyles.BodyXS
+                            color: GlobalValues.defaultTextColor
+                            elide: Text.ElideRight
+                            text: sessionRow.values[index]
+                        }
+                    }
+                }
+
+                Rectangle {
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.bottom: parent.bottom
+                    height: GlobalValues.defaultSolidSeparatorThickness
+                    color: GlobalValues.defaultBorderColor
+                }
+            }
         }
     }
 
