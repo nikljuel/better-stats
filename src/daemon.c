@@ -14,6 +14,9 @@
 #ifndef PROC_ROOT
 #define PROC_ROOT "/proc"
 #endif
+#ifndef READER_START_GRACE_SECONDS
+#define READER_START_GRACE_SECONDS 5
+#endif
 
 static volatile sig_atomic_t running = 1;
 
@@ -367,7 +370,8 @@ int run_daemon(void)
                    && (rstate == RS_UNTRACKED || rstate == RS_FROZEN)) {
             int64_t started_at = 0;
             int fp = read_reader_pid(READER_PIDFILE, &started_at);
-            int session_ready = started_at == 0 || s.opentime >= started_at;
+            int session_ready = started_at == 0
+                || s.opentime >= started_at - READER_START_GRACE_SECONDS;
             if (fp > 0 && session_ready && pid_exists(fp)) {
                 reader_pid = fp;
                 reader_bookid = s.bookid;

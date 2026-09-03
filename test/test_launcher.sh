@@ -15,12 +15,24 @@ for name in betterstats-inkview-softfp betterstats-inkview-hardfp; do
     sed "s/@LABEL@/$label/" > "$release/$name" <<'SCRIPT'
 #!/bin/sh
 printf '%s:%s\n' '@LABEL@' "${1:-}" >> "$BETTERSTATS_TEST_CALLS"
+case "${1:-}" in
+    --stop-daemon)
+        [ "${BETTERSTATS_STOP_TEST:-ok}" != fail ] || exit 1
+        : > "$BETTERSTATS_TEST_STOPPED"
+        ;;
+    --prepare|'')
+        [ "${BETTERSTATS_STOP_TEST:-ok}" = fail ] \
+            || [ -f "$BETTERSTATS_TEST_STOPPED" ]
+        ;;
+esac
 SCRIPT
     chmod +x "$release/$name"
 done
 cat > "$release/betterstats-qt-softfp" <<'SCRIPT'
 #!/bin/sh
 printf 'qt\n' >> "$BETTERSTATS_TEST_CALLS"
+[ "${BETTERSTATS_STOP_TEST:-ok}" = fail ] \
+    || [ -f "$BETTERSTATS_TEST_STOPPED" ]
 if [ "${BETTERSTATS_QT_TEST:-fail}" = ready ]; then
     : > "$BETTERSTATS_READY_FILE"
     exit 0
@@ -53,7 +65,9 @@ printf 'version=v1\n' > "$release/manifest"
 
 run_launcher() {
     status=0
+    rm -f "$tmp/stopped"
     BETTERSTATS_INSTALL_ROOT="$tmp" BETTERSTATS_TEST_CALLS="$calls" \
+        BETTERSTATS_TEST_STOPPED="$tmp/stopped" \
         sh "$tmp/applications/BetterStats.app" "$@" || status=$?
     sleep 1
     return "$status"
@@ -61,11 +75,15 @@ run_launcher() {
 
 : > "$calls"
 BETTERSTATS_QT_TEST=ready run_launcher
+grep -q '^softfp:--stop-daemon$' "$calls"
+grep -q '^softfp:--prepare$' "$calls"
+grep -q '^softfp:--daemon$' "$calls"
 grep -q '^qt$' "$calls"
 ! grep -q '^softfp:$' "$calls"
 
 : > "$calls"
 BETTERSTATS_QT_TEST=fail run_launcher
+grep -q '^softfp:--stop-daemon$' "$calls"
 grep -q '^qt$' "$calls"
 grep -q '^softfp:$' "$calls"
 
@@ -79,6 +97,17 @@ grep -q '^hardfp:$' "$calls"
 : > "$calls"
 BETTERSTATS_ABI=hardfp run_launcher --daemon
 grep -q '^hardfp:--daemon$' "$calls"
+! grep -q -- '--stop-daemon' "$calls"
+[ ! -e "$tmp/stopped" ]
+
+: > "$calls"
+BETTERSTATS_ABI=softfp BETTERSTATS_STOP_TEST=fail \
+    BETTERSTATS_QT_TEST=ready run_launcher
+grep -q '^softfp:--stop-daemon$' "$calls"
+grep -q '^softfp:--prepare$' "$calls"
+grep -q '^qt$' "$calls"
+grep -q 'could not flush running daemon before launch' \
+    "$tmp/system/pbreadstats/app.log"
 
 printf '../escape\n' > "$tmp/applications/betterstats/current"
 if run_launcher; then

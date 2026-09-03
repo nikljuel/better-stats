@@ -315,7 +315,8 @@ static void test_stale_session_at_restart(void)
     puts("  ok");
 }
 
-/* A new handler must wait until its matching firmware session is visible. */
+/* A new handler must wait until its matching firmware session is visible. The
+ * firmware can stamp opentime just before it invokes the handler. */
 static void test_pid_waits_for_firmware_session(void)
 {
     puts("test_pid_waits_for_firmware_session...");
@@ -329,13 +330,13 @@ static void test_pid_waits_for_firmware_session(void)
     assert(access(READER_SESSION, F_OK) != 0);
     assert(read_pid(READER_PIDFILE) == (int)reader);
 
-    update_explorer(2, 2000);
+    update_explorer(2, 1998);
     sleep_ms(2200);
-    assert_reader_session((int)reader, 2, 2000);
+    assert_reader_session((int)reader, 2, 1998);
 
     kill_and_wait(reader);
     sleep_ms((POLL_SECONDS + 1) * 1000);
-    assert_reader_session(0, 2, 2000);
+    assert_reader_session(0, 2, 1998);
     stop_daemon_and_wait(daemon);
     puts("  ok");
 }
@@ -357,6 +358,56 @@ static void test_dead_before_adoption(void)
     assert(access(READER_PIDFILE, F_OK) != 0);
     stop_daemon_and_wait(daemon);
     assert(read_active_seconds(4) == 0);
+    puts("  ok");
+}
+
+/* Opening Better Stats can stop the daemon before its next reader-death poll.
+ * The replacement daemon must normalize that dead persisted PID to FROZEN. */
+static void test_restart_immediately_after_reader_death(void)
+{
+    puts("test_restart_immediately_after_reader_death...");
+    clean_state();
+    write_explorer(5, 5000);
+
+    pid_t reader = make_sleeping_child();
+    write_pid(READER_PIDFILE, reader);
+    pid_t daemon = start_daemon();
+    for (int i = 0; i < 200 && access(READER_SESSION, F_OK) != 0; ++i)
+        sleep_ms(10);
+    assert_reader_session((int)reader, 5, 5000);
+    sleep_ms(1200);
+
+    /* Hold the daemon in its wait so it cannot observe the reader death before
+     * the launch-triggered shutdown signal arrives. */
+    assert(kill(daemon, SIGSTOP) == 0);
+    int status = 0;
+    assert(waitpid(daemon, &status, WUNTRACED) == daemon);
+    assert(WIFSTOPPED(status));
+    kill_and_wait(reader);
+    assert(kill(daemon, SIGTERM) == 0);
+    assert(kill(daemon, SIGCONT) == 0);
+    assert(waitpid(daemon, &status, 0) == daemon);
+    assert(WIFEXITED(status) && WEXITSTATUS(status) == 0);
+    assert(access(PIDFILE, F_OK) != 0);
+
+    int64_t stopped = read_active_seconds(5);
+    daemon = start_daemon();
+    for (int i = 0; i < 200; ++i) {
+        FILE *f = fopen(READER_SESSION, "r");
+        int pid = -1;
+        if (f) {
+            fscanf(f, "%d", &pid);
+            fclose(f);
+        }
+        if (pid == 0)
+            break;
+        sleep_ms(10);
+    }
+    assert_reader_session(0, 5, 5000);
+    sleep_ms(2200);
+    assert(read_active_seconds(5) == stopped);
+    stop_daemon_and_wait(daemon);
+    assert(read_active_seconds(5) == stopped);
     puts("  ok");
 }
 
@@ -403,6 +454,7 @@ int main(int argc, char **argv)
     test_stale_session_at_restart();
     test_pid_waits_for_firmware_session();
     test_dead_before_adoption();
+    test_restart_immediately_after_reader_death();
     test_persisted_freeze();
 
     puts("all daemon tests ok");

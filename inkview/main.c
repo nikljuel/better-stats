@@ -1778,6 +1778,8 @@ int main(int argc, char **argv)
 {
     if (argc > 1 && strcmp(argv[1], "--daemon") == 0)
         return run_daemon();
+    if (argc > 1 && strcmp(argv[1], "--stop-daemon") == 0)
+        return stop_daemon() == 0 ? 0 : 1;
     if (argc > 1 && strcmp(argv[1], "--prepare") == 0) {
         bs_autostart_status status;
         return bs_autostart_prepare(&status) ? 0 : 1;
