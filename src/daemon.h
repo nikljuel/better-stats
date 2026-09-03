@@ -14,6 +14,12 @@
 #ifndef LEGACY_PIDFILE
 #define LEGACY_PIDFILE STATS_DIR "/betterstats.pid"
 #endif
+#ifndef READER_PIDFILE
+#define READER_PIDFILE "/tmp/betterstats-reader.pid"
+#endif
+#ifndef READER_SESSION
+#define READER_SESSION "/tmp/betterstats-reader.session"
+#endif
 #ifndef COVER_DIR
 #define COVER_DIR "/mnt/ext1/system/cover_chache/hashed"
 #endif

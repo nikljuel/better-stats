@@ -1,6 +1,7 @@
 #define _GNU_SOURCE
 #include "daemon.h"
 #include "tracker.h"
+#include <errno.h>
 #include <signal.h>
 #include <stdio.h>
 #include <string.h>
@@ -40,10 +41,9 @@ static int daemon_pid_matches(int pid)
         && memcmp(arg1 + 1, expected, sizeof(expected)) == 0;
 }
 
-/* A stale PID can point at an unrelated process after USB mode. */
-static int active_daemon_pid(void)
+static int read_pid_file(const char *path)
 {
-    FILE *f = fopen(PIDFILE, "r");
+    FILE *f = fopen(path, "r");
     if (!f)
         return 0;
     char line[32];
@@ -58,11 +58,100 @@ static int active_daemon_pid(void)
             pid = (int)parsed;
     }
     fclose(f);
+    return pid;
+}
+
+static int pid_exists(int pid)
+{
+    return pid > 0 && (kill(pid, 0) == 0 || errno == EPERM);
+}
+
+/* New handlers add their launch time; one-field markers remain compatible. */
+static int read_reader_pid(const char *path, int64_t *started_at)
+{
+    FILE *f = fopen(path, "r");
+    if (!f)
+        return 0;
+    int pid = 0;
+    long long started = 0;
+    int n = fscanf(f, "%d %lld", &pid, &started);
+    fclose(f);
+    if (n < 1 || pid <= 0 || started < 0)
+        return 0;
+    if (started_at)
+        *started_at = n == 2 ? (int64_t)started : 0;
+    return pid;
+}
+
+static void unlink_reader_pid_if_matches(int pid)
+{
+    char claimed[512];
+    int n = snprintf(claimed, sizeof(claimed), "%s.claim.%d",
+                     READER_PIDFILE, (int)getpid());
+    if (n < 0 || (size_t)n >= sizeof(claimed)
+        || rename(READER_PIDFILE, claimed) != 0)
+        return;
+    int found = read_reader_pid(claimed, NULL);
+    if (found > 0 && found != pid
+        && link(claimed, READER_PIDFILE) != 0 && errno != EEXIST)
+        perror("Better Stats daemon: restore reader PID");
+    unlink(claimed);
+}
+
+static int write_reader_session(int pid, int64_t bookid, int64_t opentime)
+{
+    char temp[512];
+    int n = snprintf(temp, sizeof(temp), "%s.tmp.%d",
+                     READER_SESSION, (int)getpid());
+    if (n < 0 || (size_t)n >= sizeof(temp)) {
+        errno = ENAMETOOLONG;
+        return -1;
+    }
+    FILE *f = fopen(temp, "w");
+    if (!f)
+        return -1;
+    int ok = fprintf(f, "%d %lld %lld\n", pid,
+                     (long long)bookid, (long long)opentime) > 0;
+    if (fclose(f) != 0)
+        ok = 0;
+    if (ok && rename(temp, READER_SESSION) == 0)
+        return 0;
+    int saved_errno = errno ? errno : EIO;
+    unlink(temp);
+    errno = saved_errno;
+    return -1;
+}
+
+static int read_reader_session(int *pid, int64_t *bookid, int64_t *opentime)
+{
+    FILE *f = fopen(READER_SESSION, "r");
+    if (!f)
+        return -1;
+    long long b = 0, o = 0;
+    int p = -1, n = 0;
+    char line[64];
+    if (fgets(line, sizeof(line), f))
+        n = sscanf(line, "%d %lld %lld", &p, &b, &o);
+    fclose(f);
+    if (n != 3 || p < 0)
+        return -1;
+    *pid = p;
+    *bookid = (int64_t)b;
+    *opentime = (int64_t)o;
+    return 0;
+}
+
+/* A stale PID can point at an unrelated process after USB mode. */
+static int active_daemon_pid(void)
+{
+    int pid = read_pid_file(PIDFILE);
+    if (pid == 0)
+        return 0;
     if (pid == (int)getpid()) {
         unlink(PIDFILE);
         return 0;
     }
-    if (pid > 0 && kill(pid, 0) == 0 && daemon_pid_matches(pid))
+    if (pid_exists(pid) && daemon_pid_matches(pid))
         return pid;
     unlink(PIDFILE);
     return 0;
@@ -161,6 +250,48 @@ static int add_awake_time(int64_t *present, int64_t *last_loop)
     return 0;
 }
 
+enum reader_state { RS_UNTRACKED, RS_TRACKING, RS_FROZEN };
+
+static void persist_reader_freeze(int pid, int64_t bookid, int64_t opentime)
+{
+    if (write_reader_session(0, bookid, opentime) == 0)
+        unlink_reader_pid_if_matches(pid);
+    else
+        perror("Better Stats daemon: write reader session");
+}
+
+static enum reader_state init_reader_state(const pb_state *fw,
+                                           int *rpid, int64_t *rbookid,
+                                           int64_t *ropentime)
+{
+    int sp = 0;
+    int64_t sb = 0, so = 0;
+    *rpid = 0;
+    *rbookid = 0;
+    *ropentime = 0;
+    if (read_reader_session(&sp, &sb, &so) != 0)
+        return RS_UNTRACKED;
+    /* A transient explorer DB error must not discard a persisted freeze. */
+    if (!fw)
+        return RS_UNTRACKED;
+    if (sb != fw->bookid || so != fw->opentime) {
+        if (sp > 0)
+            unlink_reader_pid_if_matches(sp);
+        unlink(READER_SESSION);
+        return RS_UNTRACKED;
+    }
+    *rbookid = sb;
+    *ropentime = so;
+    if (sp == 0)
+        return RS_FROZEN;
+    if (pid_exists(sp)) {
+        *rpid = sp;
+        return RS_TRACKING;
+    }
+    persist_reader_freeze(sp, sb, so);
+    return RS_FROZEN;
+}
+
 int run_daemon(void)
 {
     setsid();
@@ -187,24 +318,98 @@ int run_daemon(void)
     }
     tracker_recover(&t);
     const int wfd = watch_library(t.explorer_path);
+
+    /* Reader tracking: freeze the presence counter when the reader exits. */
+    int reader_pid = 0;
+    int64_t reader_bookid = 0, reader_opentime = 0;
+    enum reader_state rstate = RS_UNTRACKED;
+    int reader_initialized = 0;
     int64_t last_loop = -1;
     int64_t present = 0;
     int status = 0;
     while (running) {
         pb_state s;
-        /* CLOCK_MONOTONIC advances while the device is awake but not while it
-         * is suspended, so delayed loops no longer need a guessed cutoff. */
-        if (add_awake_time(&present, &last_loop) != 0) {
-            perror("Better Stats daemon: clock_gettime");
-            status = 1;
-            break;
+        int have_state = tracker_read_state(t.explorer_path, &s) == 0;
+
+        /* Restore persisted state only after the firmware DB can confirm which
+         * session is current. Until then, leave the marker untouched. */
+        if (!reader_initialized && have_state) {
+            rstate = init_reader_state(&s, &reader_pid,
+                                       &reader_bookid, &reader_opentime);
+            reader_initialized = 1;
+            if (rstate == RS_FROZEN)
+                last_loop = -1;
         }
 
-        if (tracker_read_state(t.explorer_path, &s) == 0)
+        /* Session change resets reader tracking. */
+        if (rstate != RS_UNTRACKED && have_state
+            && (s.bookid != reader_bookid || s.opentime != reader_opentime)) {
+            if (reader_pid > 0)
+                unlink_reader_pid_if_matches(reader_pid);
+            rstate = RS_UNTRACKED;
+            reader_pid = 0;
+            unlink(READER_SESSION);
+        }
+
+        /* State transitions. */
+        if (rstate == RS_TRACKING && !pid_exists(reader_pid)) {
+            if (add_awake_time(&present, &last_loop) != 0) {
+                perror("Better Stats daemon: clock_gettime");
+                status = 1;
+                break;
+            }
+            tracker_flush(&t, present, time(NULL));
+            last_loop = -1;
+            persist_reader_freeze(reader_pid, reader_bookid, reader_opentime);
+            reader_pid = 0;
+            rstate = RS_FROZEN;
+        } else if (have_state
+                   && (rstate == RS_UNTRACKED || rstate == RS_FROZEN)) {
+            int64_t started_at = 0;
+            int fp = read_reader_pid(READER_PIDFILE, &started_at);
+            int session_ready = started_at == 0 || s.opentime >= started_at;
+            if (fp > 0 && session_ready && pid_exists(fp)) {
+                reader_pid = fp;
+                reader_bookid = s.bookid;
+                reader_opentime = s.opentime;
+                if (write_reader_session(fp, s.bookid, s.opentime) != 0)
+                    perror("Better Stats daemon: write reader session");
+                rstate = RS_TRACKING;
+            } else if (fp > 0 && session_ready && rstate == RS_UNTRACKED) {
+                /* The reader can exit before the daemon gets its first poll.
+                 * Bind that dead handler PID to the visible session instead
+                 * of falling back to counting an already closed book. */
+                if (add_awake_time(&present, &last_loop) != 0) {
+                    perror("Better Stats daemon: clock_gettime");
+                    status = 1;
+                    break;
+                }
+                tracker_flush(&t, present, time(NULL));
+                last_loop = -1;
+                reader_bookid = s.bookid;
+                reader_opentime = s.opentime;
+                persist_reader_freeze(fp, s.bookid, s.opentime);
+                reader_pid = 0;
+                rstate = RS_FROZEN;
+            }
+        }
+
+        /* Accumulate monotonic awake time unless frozen. */
+        if (rstate != RS_FROZEN) {
+            if (add_awake_time(&present, &last_loop) != 0) {
+                perror("Better Stats daemon: clock_gettime");
+                status = 1;
+                break;
+            }
+        }
+
+        if (have_state)
             tracker_observe(&t, &s, present);
-        wait_for_library_change(wfd);
+        if (running)
+            wait_for_library_change(wfd);
     }
-    if (status == 0 && add_awake_time(&present, &last_loop) != 0) {
+    if (status == 0 && rstate != RS_FROZEN
+        && add_awake_time(&present, &last_loop) != 0) {
         perror("Better Stats daemon: clock_gettime");
         status = 1;
     }

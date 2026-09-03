@@ -4,7 +4,9 @@
 #include <stdint.h>
 #include <sqlite3.h>
 
+#ifndef POLL_SECONDS
 #define POLL_SECONDS 30
+#endif
 /* Ceiling on what one page of reading may be worth, borrowed from the
  * winst0niuss fork. Presence alone cannot tell reading from a book lying open
  * on an awake device; the pages actually turned can. Loose on purpose: the
@@ -34,7 +36,7 @@ typedef struct {
     int64_t cur_row_base;    /* active_seconds the row already had when adopted */
     int64_t cur_row_present; /* presence total when the row was adopted */
     int64_t cur_last_present;/* presence total at the last persisted endpoint */
-    int64_t cur_budget_used; /* page-budget seconds assigned to earlier day rows */
+    int64_t cur_budget_used; /* page-budget seconds persisted before this counter */
     int cur_row_moved;       /* pages moved since, as distance -- back counts too */
     int cur_pages_last;      /* last cpage seen, to measure that distance */
     int64_t cur_row_start; /* start_time of the row we currently write to */

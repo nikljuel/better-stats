@@ -132,6 +132,15 @@ int main(void)
     char *handler = read_text(HANDLER_PATH_TEST);
     assert(strstr(handler, "# Better Stats autostart v2"));
     assert(strstr(handler, "after_self=0"));
+    {
+        const char *pid_line = strstr(handler, "echo $$");
+        const char *publish_line = strstr(handler, "mv -f");
+        const char *daemon_line = strstr(handler, "--daemon");
+        const char *date_arg = pid_line ? strstr(pid_line, "date +%s") : NULL;
+        assert(pid_line != NULL && publish_line != NULL && daemon_line != NULL);
+        assert(pid_line < publish_line && publish_line < daemon_line);
+        assert(date_arg != NULL && date_arg < daemon_line);
+    }
     free(handler);
 
     bs_autostart_set(0, &status);

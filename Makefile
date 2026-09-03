@@ -36,6 +36,9 @@ test:
 	  -DPIDFILE='"/tmp/bs_daemon_test/daemon.pid"' \
 	  -DLEGACY_PIDFILE='"/tmp/bs_daemon_test/legacy.pid"' \
 	  -DPROC_ROOT='"/tmp/bs_daemon_test/proc"' \
+	  -DPOLL_SECONDS=1 \
+	  -DREADER_PIDFILE='"/tmp/bs_daemon_test/reader.pid"' \
+	  -DREADER_SESSION='"/tmp/bs_daemon_test/reader.session"' \
 	  -o build/test_daemon test/test_daemon.c src/daemon.c src/tracker.c src/paths.c \
 	  -lsqlite3
 	./build/test_daemon

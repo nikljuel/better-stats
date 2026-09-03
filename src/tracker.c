@@ -11,6 +11,7 @@ static const char *SCHEMA =
     "  active_seconds INTEGER NOT NULL DEFAULT 0,"
     "  pages_start INTEGER,"           /* NULL = unbekannt */
     "  pages_end INTEGER,"
+    "  pages_moved INTEGER NOT NULL DEFAULT 0,"
     "  recovered INTEGER NOT NULL DEFAULT 0,"
     "  PRIMARY KEY (book_id, start_time));"
     "CREATE TABLE IF NOT EXISTS books ("
@@ -26,6 +27,7 @@ static const char *SCHEMA =
     "  active_seconds INTEGER NOT NULL DEFAULT 0,"
     "  pages_start INTEGER,"
     "  pages_end INTEGER,"
+    "  pages_moved INTEGER NOT NULL DEFAULT 0,"
     "  recovered INTEGER NOT NULL DEFAULT 0,"
     "  PRIMARY KEY (book_id, start_time));";
 
@@ -33,7 +35,10 @@ static const char *SCHEMA =
  * Idempotent, runs on every daemon start. */
 static const char *MIGRATE =
     "INSERT OR IGNORE INTO sessions_archived"
-    " SELECT * FROM sessions WHERE recovered = 1;"
+    " (book_id,start_time,end_time,active_seconds,pages_start,pages_end,"
+    "  pages_moved,recovered)"
+    " SELECT book_id,start_time,end_time,active_seconds,pages_start,pages_end,"
+    "  pages_moved,recovered FROM sessions WHERE recovered = 1;"
     "DELETE FROM sessions WHERE recovered = 1;";
 
 static int exec1(sqlite3 *db, const char *sql)
@@ -47,19 +52,45 @@ static int exec1(sqlite3 *db, const char *sql)
     return 0;
 }
 
-static int migrate_completed_ts(sqlite3 *db)
+static int column_exists(sqlite3 *db, const char *table, const char *column)
 {
+    char sql[64];
+    snprintf(sql, sizeof(sql), "PRAGMA table_info(%s)", table);
     sqlite3_stmt *st = NULL;
     int found = 0;
-    if (sqlite3_prepare_v2(db, "PRAGMA table_info(books)", -1, &st, NULL)
-        != SQLITE_OK)
+    if (sqlite3_prepare_v2(db, sql, -1, &st, NULL) != SQLITE_OK)
         return -1;
     while (sqlite3_step(st) == SQLITE_ROW)
-        if (!strcmp((const char *)sqlite3_column_text(st, 1), "completed_ts"))
+        if (!strcmp((const char *)sqlite3_column_text(st, 1), column))
             found = 1;
     sqlite3_finalize(st);
-    return found ? 0 : exec1(db,
+    return found;
+}
+
+static int migrate_completed_ts(sqlite3 *db)
+{
+    int found = column_exists(db, "books", "completed_ts");
+    return found < 0 ? -1 : found ? 0 : exec1(db,
         "ALTER TABLE books ADD COLUMN completed_ts INTEGER NOT NULL DEFAULT 0");
+}
+
+static int migrate_pages_moved(sqlite3 *db)
+{
+    static const char *tables[] = {"sessions", "sessions_archived"};
+    for (size_t i = 0; i < sizeof(tables) / sizeof(tables[0]); ++i) {
+        int found = column_exists(db, tables[i], "pages_moved");
+        if (found < 0)
+            return -1;
+        if (!found) {
+            char sql[128];
+            snprintf(sql, sizeof(sql),
+                     "ALTER TABLE %s ADD COLUMN pages_moved"
+                     " INTEGER NOT NULL DEFAULT 0", tables[i]);
+            if (exec1(db, sql) != 0)
+                return -1;
+        }
+    }
+    return 0;
 }
 
 int tracker_init(tracker *t, const char *stats_path, const char *explorer_path)
@@ -74,6 +105,7 @@ int tracker_init(tracker *t, const char *stats_path, const char *explorer_path)
     if (exec1(t->stats, "BEGIN IMMEDIATE") != 0
         || exec1(t->stats, SCHEMA) != 0
         || migrate_completed_ts(t->stats) != 0
+        || migrate_pages_moved(t->stats) != 0
         || exec1(t->stats, MIGRATE) != 0
         || exec1(t->stats, "COMMIT") != 0) {
         sqlite3_exec(t->stats, "ROLLBACK", NULL, NULL, NULL);
@@ -169,7 +201,11 @@ static void upsert_book(tracker *t, const pb_state *s)
          * deleted, while the cached image itself stays. Overwriting here is
          * what made the picture of a finished-and-deleted book unreachable. */
         "  cover = CASE WHEN ?4 = '' THEN cover ELSE ?4 END,"
-        "  cpage=?5, npage=?6, completed=?7, completed_ts=?8, last_seen=?9";
+        "  cpage=CASE WHEN last_seen IS NULL OR ?9 > last_seen"
+        "             THEN ?5 ELSE cpage END,"
+        "  npage=?6, completed=?7, completed_ts=?8,"
+        "  last_seen=CASE WHEN last_seen IS NULL OR ?9 > last_seen"
+        "                 THEN ?9 ELSE last_seen END";
     if (sqlite3_prepare_v2(t->stats, sql, -1, &st, NULL) != SQLITE_OK)
         return;
     sqlite3_bind_int64(st, 1, s->bookid);
@@ -217,13 +253,14 @@ static int64_t local_day_start(int64_t ts)
 }
 
 static void insert_session(tracker *t, int64_t bookid, int64_t start_time,
-                           int64_t end_time, int cpage, int pages_start_known)
+                           int64_t end_time, int cpage, int pages_start_known,
+                           int pages_moved)
 {
     sqlite3_stmt *st = NULL;
     const char *sql =
         "INSERT OR IGNORE INTO sessions"
-        " (book_id, start_time, end_time, pages_start, pages_end)"
-        " VALUES (?1,?2,?3,?4,?5)";
+        " (book_id,start_time,end_time,pages_start,pages_end,pages_moved)"
+        " VALUES (?1,?2,?3,?4,?5,?6)";
     if (sqlite3_prepare_v2(t->stats, sql, -1, &st, NULL) != SQLITE_OK)
         return;
     sqlite3_bind_int64(st, 1, bookid);
@@ -237,27 +274,30 @@ static void insert_session(tracker *t, int64_t bookid, int64_t start_time,
     else
         sqlite3_bind_null(st, 4);
     sqlite3_bind_int(st, 5, cpage);
+    sqlite3_bind_int(st, 6, pages_moved);
     sqlite3_step(st);
     sqlite3_finalize(st);
 }
 
-/* Sets a session row's end and time. Deliberately SET, not +=: the firmware
- * only reports where a session began and when its last page turn was, so the
- * row is recomputed from those endpoints every time one of them moves. */
+/* Stores absolute values, not deltas. A later flush may carry an older firmware
+ * endpoint, so never let it shrink an already persisted boundary or duration. */
 static void set_session(tracker *t, int64_t bookid, int64_t start_time,
                         int64_t end_time, int64_t active, int pages_end)
 {
     sqlite3_stmt *st = NULL;
     const char *sql =
-        "UPDATE sessions SET end_time=?1, active_seconds=?2,"
-        " pages_end=?3 WHERE book_id=?4 AND start_time=?5";
+        "UPDATE sessions SET end_time=MAX(end_time,?1),"
+        " active_seconds=MAX(active_seconds,?2),"
+        " pages_end=?3, pages_moved=MAX(pages_moved,?4)"
+        " WHERE book_id=?5 AND start_time=?6";
     if (sqlite3_prepare_v2(t->stats, sql, -1, &st, NULL) != SQLITE_OK)
         return;
     sqlite3_bind_int64(st, 1, end_time);
     sqlite3_bind_int64(st, 2, active);
     sqlite3_bind_int(st, 3, pages_end);
-    sqlite3_bind_int64(st, 4, bookid);
-    sqlite3_bind_int64(st, 5, start_time);
+    sqlite3_bind_int(st, 4, t->cur_row_moved);
+    sqlite3_bind_int64(st, 5, bookid);
+    sqlite3_bind_int64(st, 6, start_time);
     sqlite3_step(st);
     sqlite3_finalize(st);
 }
@@ -295,26 +335,30 @@ static void refresh_current(tracker *t)
         if (sqlite3_step(st) == SQLITE_ROW) {
             const int64_t position_ts = sqlite3_column_int64(st, 0);
             const int cpage = sqlite3_column_int(st, 1);
-            t->cur_row_moved += cpage > t->cur_pages_last
-                ? cpage - t->cur_pages_last
-                : t->cur_pages_last - cpage;
-            t->cur_pages_last = cpage;
-            sqlite3_stmt *update = NULL;
-            if (sqlite3_prepare_v2(t->stats,
-                                   "UPDATE books SET cpage=?1,last_seen=?2"
-                                   " WHERE book_id=?3",
-                                   -1, &update, NULL) == SQLITE_OK) {
-                sqlite3_bind_int(update, 1, cpage);
-                sqlite3_bind_int64(update, 2, position_ts);
-                sqlite3_bind_int64(update, 3, t->cur_book);
-                sqlite3_step(update);
+            if (position_ts > t->cur_pos_ts) {
+                t->cur_row_moved += cpage > t->cur_pages_last
+                    ? cpage - t->cur_pages_last
+                    : t->cur_pages_last - cpage;
+                t->cur_pages_last = cpage;
+                sqlite3_stmt *update = NULL;
+                if (sqlite3_prepare_v2(t->stats,
+                                       "UPDATE books SET cpage=?1,last_seen=?2"
+                                       " WHERE book_id=?3",
+                                       -1, &update, NULL) == SQLITE_OK) {
+                    sqlite3_bind_int(update, 1, cpage);
+                    sqlite3_bind_int64(update, 2, position_ts);
+                    sqlite3_bind_int64(update, 3, t->cur_book);
+                    sqlite3_step(update);
+                }
+                sqlite3_finalize(update);
             }
-            sqlite3_finalize(update);
         }
     }
     sqlite3_finalize(st);
     sqlite3_close(db);
 }
+
+static int64_t adopt_row(tracker *t, int64_t bookid, int64_t start_time);
 
 static int64_t row_active(tracker *t, int64_t present, int64_t end_time)
 {
@@ -353,9 +397,9 @@ static void write_current(tracker *t, int64_t present, int64_t end_time)
                     t->cur_row_base + before_credit,
                     t->cur_pages_last);
         insert_session(t, t->cur_book, midnight, end_time,
-                       t->cur_pages_last, 0);
+                       t->cur_pages_last, 0, t->cur_row_moved);
         t->cur_row_start = midnight;
-        t->cur_row_base = 0;
+        t->cur_row_base = adopt_row(t, t->cur_book, midnight);
         t->cur_row_present = present - (gained - before);
         t->cur_budget_used += before_credit;
     }
@@ -431,6 +475,54 @@ static int64_t adopt_row(tracker *t, int64_t bookid, int64_t start_time)
     return active;
 }
 
+static void adopt_session(tracker *t, const pb_state *s)
+{
+    sqlite3_stmt *st = NULL;
+    t->cur_row_start = s->opentime;
+    t->cur_row_base = 0;
+    t->cur_pos_ts = s->opentime;
+    t->cur_budget_used = 0;
+    t->cur_row_moved = 1;
+    t->cur_pages_last = s->cpage;
+    int legacy_distance = 0;
+    int persisted_pages = 0;
+    if (sqlite3_prepare_v2(t->stats,
+                           "SELECT start_time,end_time,active_seconds,"
+                           " pages_start,pages_end,pages_moved FROM sessions"
+                           " WHERE book_id=?1 AND start_time>=?2"
+                           " ORDER BY start_time",
+                           -1, &st, NULL) == SQLITE_OK) {
+        sqlite3_bind_int64(st, 1, s->bookid);
+        sqlite3_bind_int64(st, 2, s->opentime);
+        while (sqlite3_step(st) == SQLITE_ROW) {
+            t->cur_row_start = sqlite3_column_int64(st, 0);
+            int64_t end = sqlite3_column_int64(st, 1);
+            if (end > t->cur_pos_ts)
+                t->cur_pos_ts = end;
+            t->cur_row_base = sqlite3_column_int64(st, 2);
+            t->cur_budget_used += t->cur_row_base;
+            if (sqlite3_column_type(st, 3) != SQLITE_NULL
+                && sqlite3_column_type(st, 4) != SQLITE_NULL) {
+                int from = sqlite3_column_int(st, 3);
+                int to = sqlite3_column_int(st, 4);
+                legacy_distance += from < to ? to - from : from - to;
+            }
+            if (sqlite3_column_type(st, 4) != SQLITE_NULL)
+                t->cur_pages_last = sqlite3_column_int(st, 4);
+            int pages = sqlite3_column_int(st, 5);
+            if (pages > persisted_pages)
+                persisted_pages = pages;
+        }
+        sqlite3_finalize(st);
+    }
+    t->cur_row_moved = persisted_pages > 0 ? persisted_pages
+                                           : 1 + legacy_distance;
+    int64_t minimum_pages = t->cur_budget_used / SECONDS_PER_PAGE_CAP
+        + (t->cur_budget_used % SECONDS_PER_PAGE_CAP != 0);
+    if (minimum_pages > t->cur_row_moved)
+        t->cur_row_moved = (int)minimum_pages;
+}
+
 int tracker_observe(tracker *t, const pb_state *s, int64_t present)
 {
     if (!s || s->bookid <= 0)
@@ -446,17 +538,15 @@ int tracker_observe(tracker *t, const pb_state *s, int64_t present)
 
     if (fresh) {
         tracker_flush(t, present, s->opentime - 1);
-        insert_session(t, s->bookid, s->opentime, s->position_ts, s->cpage, 1);
+        insert_session(t, s->bookid, s->opentime, s->position_ts,
+                       s->cpage, 1, 1);
         t->cur_book = s->bookid;
         t->cur_open = s->opentime;
-        t->cur_row_start = s->opentime;
-        t->cur_row_base = adopt_row(t, s->bookid, s->opentime);
+        adopt_session(t, s);
         t->cur_row_present = present;
         t->cur_last_present = present;
-        t->cur_budget_used = 0;
-        t->cur_row_moved = 1; /* the page being read counts */
-        t->cur_pages_last = s->cpage;
-        t->cur_pos_ts = s->position_ts;
+        if (s->position_ts <= t->cur_pos_ts)
+            return 1;
     }
 
     /* Distance, not difference: reading backwards to check something is still
@@ -468,6 +558,7 @@ int tracker_observe(tracker *t, const pb_state *s, int64_t present)
     t->cur_pages_last = s->cpage;
 
     write_current(t, present, s->position_ts);
-    t->cur_pos_ts = s->position_ts;
+    if (s->position_ts > t->cur_pos_ts)
+        t->cur_pos_ts = s->position_ts;
     return fresh ? 1 : 2;
 }
