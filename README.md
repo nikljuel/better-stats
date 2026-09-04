@@ -44,15 +44,15 @@ kind of stats screen you'd expect from Kobo or Fable.
 
 ## How it works
 
-A small background daemon watches the firmware's
-library database (`explorer-3.db`) **read-only** via inotify (falling back to a
-30-second poll where inotify is unavailable) and derives reading sessions from
-the book's open time and last position update. Active time uses Linux's monotonic
-clock, which stops during system suspend; a per-page ceiling limits awake time
-with an unattended open book. If the daemon wasn't running, Better Stats
-reconstructs a best-effort estimate of the last session per book on the next
-launch. The firmware does not retain enough timestamps for an exact
-reconstruction, so short sessions or pauses can still be missed.
+A small background daemon samples the firmware's library database
+(`explorer-3.db`) **read-only** once per second. It counts `CLOCK_BOOTTIME` only
+while the bound reader is the foreground InkView task and the keylock is off;
+closing the reader, locking the device, or switching apps ends the current
+measured fragment. A per-page ceiling limits unattended time on one page.
+Sampling is left-continuous: the elapsed interval belongs to the state seen at
+the previous sample. A lock or app switch that happens immediately before a
+CPU suspend can therefore add the last unobserved interval, but normal changes
+are detected within about one second.
 
 Autostart installs a small EPUB/FB2/CBZ file handler: a shell script that
 backgrounds the daemon and then `exec`s the stock reader, so it *becomes* the

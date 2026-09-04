@@ -1,21 +1,32 @@
 #define _GNU_SOURCE
 #include "daemon.h"
 #include "tracker.h"
+
 #include <errno.h>
 #include <signal.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
-#include <sys/inotify.h>
-#include <sys/select.h>
 #include <sys/stat.h>
 #include <time.h>
 #include <unistd.h>
+
+#if defined(PLATFORM_FC) || defined(BETTERSTATS_DEVICE_STATE_TEST)
+#include <inkview.h>
+#define HAVE_DEVICE_STATE 1
+#endif
 
 #ifndef PROC_ROOT
 #define PROC_ROOT "/proc"
 #endif
 #ifndef READER_START_GRACE_SECONDS
 #define READER_START_GRACE_SECONDS 5
+#endif
+
+#ifdef CLOCK_BOOTTIME
+#define TRACK_CLOCK CLOCK_BOOTTIME
+#else
+#define TRACK_CLOCK CLOCK_MONOTONIC
 #endif
 
 static volatile sig_atomic_t running = 1;
@@ -28,15 +39,13 @@ static void on_term(int sig)
 
 static int daemon_pid_matches(int pid)
 {
-    char path[64];
+    char path[64], cmdline[512];
     snprintf(path, sizeof(path), PROC_ROOT "/%d/cmdline", pid);
     FILE *f = fopen(path, "rb");
     if (!f)
         return 0;
-    char cmdline[512];
     size_t n = fread(cmdline, 1, sizeof(cmdline), f);
     fclose(f);
-
     char *arg1 = memchr(cmdline, '\0', n);
     static const char expected[] = "--daemon";
     size_t remaining = arg1 ? n - (size_t)(arg1 + 1 - cmdline) : 0;
@@ -52,13 +61,12 @@ static int read_pid_file(const char *path)
     char line[32];
     int pid = 0;
     if (fgets(line, sizeof(line), f)) {
-        unsigned int parsed = 0;
-        const char *p = line;
-        while (*p >= '0' && *p <= '9'
-               && parsed <= (2147483647u - (unsigned int)(*p - '0')) / 10u)
-            parsed = parsed * 10u + (unsigned int)(*p++ - '0');
-        if (p != line && (*p == '\n' || *p == '\0') && parsed > 0)
-            pid = (int)parsed;
+        char *end = NULL;
+        errno = 0;
+        long value = strtol(line, &end, 10);
+        if (!errno && value > 0 && value <= 2147483647L
+            && end != line && (*end == '\n' || *end == '\0'))
+            pid = (int)value;
     }
     fclose(f);
     return pid;
@@ -69,82 +77,6 @@ static int pid_exists(int pid)
     return pid > 0 && (kill(pid, 0) == 0 || errno == EPERM);
 }
 
-/* New handlers add their launch time; one-field markers remain compatible. */
-static int read_reader_pid(const char *path, int64_t *started_at)
-{
-    FILE *f = fopen(path, "r");
-    if (!f)
-        return 0;
-    int pid = 0;
-    long long started = 0;
-    int n = fscanf(f, "%d %lld", &pid, &started);
-    fclose(f);
-    if (n < 1 || pid <= 0 || started < 0)
-        return 0;
-    if (started_at)
-        *started_at = n == 2 ? (int64_t)started : 0;
-    return pid;
-}
-
-static void unlink_reader_pid_if_matches(int pid)
-{
-    char claimed[512];
-    int n = snprintf(claimed, sizeof(claimed), "%s.claim.%d",
-                     READER_PIDFILE, (int)getpid());
-    if (n < 0 || (size_t)n >= sizeof(claimed)
-        || rename(READER_PIDFILE, claimed) != 0)
-        return;
-    int found = read_reader_pid(claimed, NULL);
-    if (found > 0 && found != pid
-        && link(claimed, READER_PIDFILE) != 0 && errno != EEXIST)
-        perror("Better Stats daemon: restore reader PID");
-    unlink(claimed);
-}
-
-static int write_reader_session(int pid, int64_t bookid, int64_t opentime)
-{
-    char temp[512];
-    int n = snprintf(temp, sizeof(temp), "%s.tmp.%d",
-                     READER_SESSION, (int)getpid());
-    if (n < 0 || (size_t)n >= sizeof(temp)) {
-        errno = ENAMETOOLONG;
-        return -1;
-    }
-    FILE *f = fopen(temp, "w");
-    if (!f)
-        return -1;
-    int ok = fprintf(f, "%d %lld %lld\n", pid,
-                     (long long)bookid, (long long)opentime) > 0;
-    if (fclose(f) != 0)
-        ok = 0;
-    if (ok && rename(temp, READER_SESSION) == 0)
-        return 0;
-    int saved_errno = errno ? errno : EIO;
-    unlink(temp);
-    errno = saved_errno;
-    return -1;
-}
-
-static int read_reader_session(int *pid, int64_t *bookid, int64_t *opentime)
-{
-    FILE *f = fopen(READER_SESSION, "r");
-    if (!f)
-        return -1;
-    long long b = 0, o = 0;
-    int p = -1, n = 0;
-    char line[64];
-    if (fgets(line, sizeof(line), f))
-        n = sscanf(line, "%d %lld %lld", &p, &b, &o);
-    fclose(f);
-    if (n != 3 || p < 0)
-        return -1;
-    *pid = p;
-    *bookid = (int64_t)b;
-    *opentime = (int64_t)o;
-    return 0;
-}
-
-/* A stale PID can point at an unrelated process after USB mode. */
 static int active_daemon_pid(void)
 {
     int pid = read_pid_file(PIDFILE);
@@ -167,7 +99,6 @@ int stop_daemon(void)
         return 0;
     if (kill(pid, SIGTERM) != 0)
         return active_daemon_pid() ? -1 : 0;
-
     const struct timespec slice = {0, 100 * 1000 * 1000};
     for (int i = 0; i < 50; ++i) {
         if (active_daemon_pid() != pid)
@@ -177,122 +108,259 @@ int stop_daemon(void)
     return active_daemon_pid() == pid ? -1 : 0;
 }
 
-static void write_pidfile(void)
+static int write_pidfile(void)
 {
     FILE *f = fopen(PIDFILE, "w");
-    if (f) {
-        fprintf(f, "%d\n", (int)getpid());
+    if (!f)
+        return -1;
+    int ok = fprintf(f, "%d\n", (int)getpid()) > 0;
+    if (fclose(f) != 0)
+        ok = 0;
+    return ok ? 0 : -1;
+}
+
+enum marker_status { MARKER_ABSENT, MARKER_VALID, MARKER_INVALID, MARKER_IO };
+typedef struct { int pid; int64_t started_at; } reader_marker;
+
+static enum marker_status read_reader_marker(reader_marker *out)
+{
+    FILE *f = fopen(READER_PIDFILE, "r");
+    if (!f)
+        return errno == ENOENT ? MARKER_ABSENT : MARKER_IO;
+    char line[96];
+    if (!fgets(line, sizeof(line), f)) {
+        int io = ferror(f);
         fclose(f);
+        return io ? MARKER_IO : MARKER_INVALID;
     }
+    int close_error = fclose(f) != 0;
+    int pid = 0, used = 0, tail = 0;
+    long long started = 0;
+    int fields = sscanf(line, " %d %lld %n", &pid, &started, &used);
+    if (fields == 1)
+        used = 0, fields = sscanf(line, " %d %n", &pid, &used);
+    while (line[used] == ' ' || line[used] == '\t'
+           || line[used] == '\r' || line[used] == '\n')
+        used++;
+    tail = line[used] != '\0';
+    if (close_error)
+        return MARKER_IO;
+    if ((fields != 1 && fields != 2) || pid <= 0 || started < 0 || tail)
+        return MARKER_INVALID;
+    out->pid = pid;
+    out->started_at = fields == 2 ? (int64_t)started : 0;
+    return MARKER_VALID;
 }
 
-/* Watch the directory rather than the file: SQLite writes journals next to the
- * database and may replace it, so a watch on the file alone would go stale.
- * Returns -1 if inotify is unavailable; the caller then falls back to waiting. */
-static int watch_library(const char *db_path)
+static int same_marker(const reader_marker *a, const reader_marker *b)
 {
-    int fd = inotify_init1(IN_NONBLOCK | IN_CLOEXEC);
-    if (fd < 0)
-        return -1;
-    char dir[512];
-    snprintf(dir, sizeof(dir), "%s", db_path);
-    char *slash = strrchr(dir, '/');
-    if (!slash) {
-        close(fd);
-        return -1;
-    }
-    *slash = '\0';
-    if (inotify_add_watch(fd, dir,
-                          IN_MODIFY | IN_CLOSE_WRITE | IN_CREATE | IN_MOVED_TO) < 0) {
-        close(fd);
-        return -1;
-    }
-    return fd;
+    return a->pid == b->pid && a->started_at == b->started_at;
 }
 
-/* Blocks until the firmware touches the library database, or the timeout runs
- * out. This is the whole point: a page turn makes the kernel wake us, so we no
- * longer depend on getting scheduled often enough to notice one ourselves. */
-static void wait_for_library_change(int wfd)
+/* Rename first so a concurrent handler can safely publish its own marker. */
+static void unlink_marker_if_matches(const reader_marker *expected)
 {
-    if (wfd < 0) {
-        const time_t due = time(NULL) + POLL_SECONDS;
-        while (running && time(NULL) < due) {
-            const struct timespec slice = {0, 200 * 1000 * 1000};
-            nanosleep(&slice, NULL);
-        }
+    char claimed[512];
+    int n = snprintf(claimed, sizeof(claimed), "%s.claim.%d",
+                     READER_PIDFILE, (int)getpid());
+    if (n < 0 || (size_t)n >= sizeof(claimed)
+        || rename(READER_PIDFILE, claimed) != 0)
         return;
+    reader_marker found = {0, 0};
+    FILE *f = fopen(claimed, "r");
+    long long started = 0;
+    int fields = f ? fscanf(f, "%d %lld", &found.pid, &started) : 0;
+    if (f)
+        fclose(f);
+    found.started_at = fields == 2 ? (int64_t)started : 0;
+    if (fields < 1 || !same_marker(&found, expected)) {
+        if (link(claimed, READER_PIDFILE) != 0 && errno != EEXIST)
+            perror("Better Stats daemon: restore reader marker");
     }
-    fd_set r;
-    FD_ZERO(&r);
-    FD_SET(wfd, &r);
-    struct timeval tv = {POLL_SECONDS, 0};
-    if (select(wfd + 1, &r, NULL, NULL, &tv) > 0) {
-        char buf[4096];
-        while (read(wfd, buf, sizeof(buf)) > 0)
-            ; /* drain: one page turn can produce several events */
-        /* Our own read of the library reopens its WAL and touches -shm in the
-         * very directory we watch, so an unthrottled loop re-triggers itself
-         * forever. Settle first, then drain whatever that produced. */
-        const struct timespec settle = {DEBOUNCE_SECONDS, 0};
-        nanosleep(&settle, NULL);
-        while (read(wfd, buf, sizeof(buf)) > 0)
-            ;
-    }
+    unlink(claimed);
 }
 
-static int add_awake_time(int64_t *present, int64_t *last_loop)
+static int write_reader_session(int pid, int64_t bookid, int64_t opentime)
 {
-    struct timespec now;
-    if (clock_gettime(CLOCK_MONOTONIC, &now) != 0)
+    char temp[512];
+    int n = snprintf(temp, sizeof(temp), "%s.tmp.%d",
+                     READER_SESSION, (int)getpid());
+    if (n < 0 || (size_t)n >= sizeof(temp)) {
+        errno = ENAMETOOLONG;
         return -1;
-    const int64_t seconds = (int64_t)now.tv_sec;
-    if (*last_loop >= 0 && seconds > *last_loop)
-        *present += seconds - *last_loop;
-    *last_loop = seconds;
+    }
+    FILE *f = fopen(temp, "w");
+    if (!f)
+        return -1;
+    int ok = fprintf(f, "%d %lld %lld\n", pid,
+                     (long long)bookid, (long long)opentime) > 0;
+    if (fclose(f) != 0)
+        ok = 0;
+    int saved = EIO;
+    if (ok) {
+        if (rename(temp, READER_SESSION) == 0)
+            return 0;
+        saved = errno;
+    }
+    unlink(temp);
+    errno = saved;
+    return -1;
+}
+
+static int read_reader_session(int *pid, int64_t *bookid, int64_t *opentime)
+{
+    FILE *f = fopen(READER_SESSION, "r");
+    if (!f)
+        return -1;
+    char line[96] = "";
+    int p = -1, used = 0;
+    long long b = 0, o = 0;
+    int fields = fgets(line, sizeof(line), f)
+        ? sscanf(line, " %d %lld %lld %n", &p, &b, &o, &used) : 0;
+    fclose(f);
+    while (line[used] == ' ' || line[used] == '\t'
+           || line[used] == '\r' || line[used] == '\n')
+        used++;
+    if (fields != 3 || line[used] != '\0' || p < 0 || b <= 0 || o <= 0)
+        return -1;
+    *pid = p;
+    *bookid = (int64_t)b;
+    *opentime = (int64_t)o;
     return 0;
 }
 
 enum reader_state { RS_UNTRACKED, RS_TRACKING, RS_FROZEN };
+enum marker_relation { REL_LEGACY, REL_WAIT, REL_MATCH, REL_STALE };
+enum foreground_state { FG_UNKNOWN = -1, FG_BACKGROUND = 0, FG_FOREGROUND = 1 };
 
-static void persist_reader_freeze(int pid, int64_t bookid, int64_t opentime)
+typedef struct {
+    int known;
+    int pid;
+    char app[128];
+} active_task_info;
+
+static active_task_info current_task(void)
 {
-    if (write_reader_session(0, bookid, opentime) == 0)
-        unlink_reader_pid_if_matches(pid);
-    else
-        perror("Better Stats daemon: write reader session");
+    active_task_info result;
+    memset(&result, 0, sizeof(result));
+#ifdef HAVE_DEVICE_STATE
+    int task = 0, subtask = 0;
+    GetActiveTask(&task, &subtask);
+    (void)subtask;
+    taskinfo *info = task > 0 ? GetTaskInfo(task) : NULL;
+    if (info && info->mainpid > 0) {
+        result.known = 1;
+        result.pid = (int)info->mainpid;
+        snprintf(result.app, sizeof(result.app), "%s",
+                 info->appname ? info->appname : "");
+    }
+#endif
+    return result;
 }
 
-static enum reader_state init_reader_state(const pb_state *fw,
-                                           int *rpid, int64_t *rbookid,
-                                           int64_t *ropentime)
+static int device_locked(void)
 {
-    int sp = 0;
-    int64_t sb = 0, so = 0;
-    *rpid = 0;
-    *rbookid = 0;
-    *ropentime = 0;
-    if (read_reader_session(&sp, &sb, &so) != 0)
-        return RS_UNTRACKED;
-    /* A transient explorer DB error must not discard a persisted freeze. */
-    if (!fw)
-        return RS_UNTRACKED;
-    if (sb != fw->bookid || so != fw->opentime) {
-        if (sp > 0)
-            unlink_reader_pid_if_matches(sp);
-        unlink(READER_SESSION);
-        return RS_UNTRACKED;
+#ifdef HAVE_DEVICE_STATE
+    return get_keylock() != 0;
+#else
+    return 0;
+#endif
+}
+
+static enum foreground_state reader_foreground(const active_task_info *task,
+                                                int reader_pid)
+{
+    if (!task->known)
+        return FG_UNKNOWN;
+    return task->pid == reader_pid ? FG_FOREGROUND : FG_BACKGROUND;
+}
+
+static const char *base_name(const char *path)
+{
+    const char *slash = strrchr(path ? path : "", '/');
+    return slash ? slash + 1 : path ? path : "";
+}
+
+static int fallback_app_allowed(const active_task_info *task)
+{
+    if (!task->known)
+        return 1;
+    const char *app = base_name(task->app);
+    static const char *blocked[] = {
+        "bookshelf.app", "BetterStats.app", "betterstats-qt-softfp",
+        "betterstats-inkview-softfp", "betterstats-inkview-hardfp"
+    };
+    for (size_t i = 0; i < sizeof(blocked) / sizeof(blocked[0]); ++i)
+        if (!strcmp(app, blocked[i]))
+            return 0;
+    return 1;
+}
+
+static enum marker_relation marker_relation(const reader_marker *marker,
+                                            const pb_state *fw)
+{
+    if (marker->started_at == 0)
+        return REL_LEGACY;
+    if (fw->opentime < marker->started_at - READER_START_GRACE_SECONDS)
+        return REL_WAIT;
+    if (fw->opentime > marker->started_at + READER_START_GRACE_SECONDS)
+        return REL_STALE;
+    return REL_MATCH;
+}
+
+static int same_firmware_session(const pb_state *fw, int64_t book, int64_t open)
+{
+    return fw && fw->bookid == book && fw->opentime == open;
+}
+
+static int persist_freeze(const reader_marker *marker,
+                          int64_t bookid, int64_t opentime)
+{
+    if (write_reader_session(0, bookid, opentime) != 0)
+        return -1;
+    unlink_marker_if_matches(marker);
+    return 0;
+}
+
+static int64_t clock_ns(struct timespec *out)
+{
+    if (clock_gettime(TRACK_CLOCK, out) != 0)
+        return -1;
+    return (int64_t)out->tv_sec * 1000000000LL + out->tv_nsec;
+}
+
+static void add_second(struct timespec *value)
+{
+    value->tv_sec += POLL_SECONDS;
+}
+
+static void wait_for_tick(struct timespec *deadline)
+{
+#ifdef PLATFORM_FC
+    if (running) {
+        int rc = clock_nanosleep(TRACK_CLOCK, TIMER_ABSTIME, deadline, NULL);
+        (void)rc; /* EINTR and other failures both return control to the loop. */
     }
-    *rbookid = sb;
-    *ropentime = so;
-    if (sp == 0)
-        return RS_FROZEN;
-    if (pid_exists(sp)) {
-        *rpid = sp;
-        return RS_TRACKING;
+    struct timespec now;
+    if (clock_gettime(TRACK_CLOCK, &now) == 0) {
+        *deadline = now;
+        add_second(deadline);
     }
-    persist_reader_freeze(sp, sb, so);
-    return RS_FROZEN;
+#else
+    (void)deadline;
+    struct timespec delay = {POLL_SECONDS, 0};
+    nanosleep(&delay, NULL); /* EINTR deliberately ends the wait. */
+#endif
+}
+
+static int close_counting(tracker *t, const pb_state *fw, int have_fw,
+                          int64_t present, int64_t wall, int observe)
+{
+    if (observe && have_fw
+        && same_firmware_session(fw, t->cur_book, t->cur_open)
+        && tracker_observe(t, fw, present) < 0)
+        return -1;
+    return tracker_flush(t, present, wall);
 }
 
 int run_daemon(void)
@@ -301,125 +369,294 @@ int run_daemon(void)
     if (active_daemon_pid())
         return 0;
 
+#ifdef HAVE_DEVICE_STATE
+    InitInkview(TASK_NOHANDLER);
+#endif
     struct sigaction action;
     memset(&action, 0, sizeof(action));
     action.sa_handler = on_term;
     sigemptyset(&action.sa_mask);
-    /* select() must return immediately so an update can replace this daemon. */
     if (sigaction(SIGTERM, &action, NULL) != 0
         || sigaction(SIGINT, &action, NULL) != 0)
         return 1;
 
     mkdir(STATS_DIR, 0755);
     unlink(LEGACY_PIDFILE);
-    write_pidfile();
+    if (write_pidfile() != 0)
+        return 1;
 
     tracker t;
     if (tracker_init(&t, stats_db_path(), explorer_db_path()) != 0) {
         unlink(PIDFILE);
         return 1;
     }
-    tracker_recover(&t);
-    const int wfd = watch_library(t.explorer_path);
 
-    /* Reader tracking: freeze the presence counter when the reader exits. */
-    int reader_pid = 0;
-    int64_t reader_bookid = 0, reader_opentime = 0;
     enum reader_state rstate = RS_UNTRACKED;
-    int reader_initialized = 0;
-    int64_t last_loop = -1;
-    int64_t present = 0;
-    int status = 0;
+    int reader_pid = 0, foreground = FG_BACKGROUND;
+    int64_t reader_book = 0, reader_open = 0;
+    int recovered = 0, restored = 0, was_counting = 0, status = 0;
+    int64_t present_ns = 0;
+    struct timespec last_clock, deadline;
+    int64_t last_ns = clock_ns(&last_clock);
+    if (last_ns < 0) {
+        status = 1;
+        goto cleanup;
+    }
+    deadline = last_clock;
+    add_second(&deadline);
+
     while (running) {
-        pb_state s;
-        int have_state = tracker_read_state(t.explorer_path, &s) == 0;
-
-        /* Restore persisted state only after the firmware DB can confirm which
-         * session is current. Until then, leave the marker untouched. */
-        if (!reader_initialized && have_state) {
-            rstate = init_reader_state(&s, &reader_pid,
-                                       &reader_bookid, &reader_opentime);
-            reader_initialized = 1;
-            if (rstate == RS_FROZEN)
-                last_loop = -1;
+        struct timespec now_clock;
+        int64_t now_ns = clock_ns(&now_clock);
+        if (now_ns < 0) {
+            status = 1;
+            break;
         }
+        if (was_counting && now_ns > last_ns)
+            present_ns += now_ns - last_ns;
+        last_ns = now_ns;
+        int64_t present = present_ns / 1000000000LL;
+        int64_t wall = (int64_t)time(NULL);
 
-        /* Session change resets reader tracking. */
-        if (rstate != RS_UNTRACKED && have_state
-            && (s.bookid != reader_bookid || s.opentime != reader_opentime)) {
-            if (reader_pid > 0)
-                unlink_reader_pid_if_matches(reader_pid);
-            rstate = RS_UNTRACKED;
-            reader_pid = 0;
-            unlink(READER_SESSION);
-        }
-
-        /* State transitions. */
-        if (rstate == RS_TRACKING && !pid_exists(reader_pid)) {
-            if (add_awake_time(&present, &last_loop) != 0) {
-                perror("Better Stats daemon: clock_gettime");
+        pb_state fw;
+        int fw_result = tracker_read_state(t.explorer_path, &fw);
+        int have_fw = fw_result == 0;
+        if (!recovered && fw_result >= 0) {
+            if (tracker_recover(&t, have_fw ? fw.bookid : 0,
+                                have_fw ? fw.opentime : 0) < 0) {
                 status = 1;
                 break;
             }
-            tracker_flush(&t, present, time(NULL));
-            last_loop = -1;
-            persist_reader_freeze(reader_pid, reader_bookid, reader_opentime);
-            reader_pid = 0;
-            rstate = RS_FROZEN;
-        } else if (have_state
-                   && (rstate == RS_UNTRACKED || rstate == RS_FROZEN)) {
-            int64_t started_at = 0;
-            int fp = read_reader_pid(READER_PIDFILE, &started_at);
-            int session_ready = started_at == 0
-                || s.opentime >= started_at - READER_START_GRACE_SECONDS;
-            if (fp > 0 && session_ready && pid_exists(fp)) {
-                reader_pid = fp;
-                reader_bookid = s.bookid;
-                reader_opentime = s.opentime;
-                if (write_reader_session(fp, s.bookid, s.opentime) != 0)
-                    perror("Better Stats daemon: write reader session");
-                rstate = RS_TRACKING;
-            } else if (fp > 0 && session_ready && rstate == RS_UNTRACKED) {
-                /* The reader can exit before the daemon gets its first poll.
-                 * Bind that dead handler PID to the visible session instead
-                 * of falling back to counting an already closed book. */
-                if (add_awake_time(&present, &last_loop) != 0) {
-                    perror("Better Stats daemon: clock_gettime");
+            recovered = 1;
+        }
+
+        if (!restored && recovered && have_fw) {
+            int saved_pid = 0;
+            int64_t saved_book = 0, saved_open = 0;
+            if (read_reader_session(&saved_pid, &saved_book, &saved_open) == 0
+                && have_fw
+                && same_firmware_session(&fw, saved_book, saved_open)) {
+                reader_book = saved_book;
+                reader_open = saved_open;
+                if (saved_pid == 0) {
+                    rstate = RS_FROZEN;
+                } else if (pid_exists(saved_pid)) {
+                    reader_pid = saved_pid;
+                    rstate = RS_TRACKING;
+                } else {
+                    reader_marker dead = {saved_pid, 0};
+                    if (write_reader_session(0, saved_book, saved_open) != 0) {
+                        status = 1;
+                        break;
+                    }
+                    unlink_marker_if_matches(&dead);
+                    rstate = RS_FROZEN;
+                }
+            } else {
+                unlink(READER_SESSION);
+            }
+            restored = 1;
+        }
+
+        reader_marker marker = {0, 0};
+        enum marker_status marker_status = read_reader_marker(&marker);
+        active_task_info task = current_task();
+        int locked = device_locked();
+
+        /* A broken marker is not absence: pause without discarding a binding. */
+        if (marker_status == MARKER_INVALID || marker_status == MARKER_IO
+            || (!have_fw && rstate != RS_TRACKING)) {
+            if (was_counting
+                && close_counting(&t, &fw, have_fw, present, wall, 1) != 0) {
+                status = 1;
+                break;
+            }
+            was_counting = 0;
+            if (running)
+                wait_for_tick(&deadline);
+            continue;
+        }
+
+        enum marker_relation relation = REL_LEGACY;
+        if (marker_status == MARKER_VALID && have_fw) {
+            relation = marker_relation(&marker, &fw);
+            if (relation == REL_STALE) {
+                unlink_marker_if_matches(&marker);
+                marker_status = MARKER_ABSENT;
+            }
+        }
+
+        if (marker_status == MARKER_VALID
+            && (relation == REL_WAIT
+                || (!have_fw
+                    && !(rstate == RS_TRACKING
+                         && marker.pid == reader_pid)))) {
+            if (was_counting && tracker_flush(&t, present, wall) != 0) {
+                status = 1;
+                break;
+            }
+            was_counting = 0;
+            if (running)
+                wait_for_tick(&deadline);
+            continue;
+        }
+
+        int session_changed = have_fw && rstate != RS_UNTRACKED
+            && !same_firmware_session(&fw, reader_book, reader_open);
+        int marker_live = marker_status == MARKER_VALID && pid_exists(marker.pid);
+        int marker_fg = marker_status == MARKER_VALID
+            ? reader_foreground(&task, marker.pid) : FG_UNKNOWN;
+        int marker_matches = marker_status == MARKER_VALID
+            && (relation == REL_MATCH || relation == REL_LEGACY);
+
+        /* Prefer a confirmed replacement over freezing the cached dead PID. */
+        if (have_fw && marker_matches && marker_live
+            && marker_fg == FG_FOREGROUND
+            && (rstate != RS_TRACKING || reader_pid != marker.pid
+                || session_changed)) {
+            int replacing = rstate == RS_TRACKING && reader_pid != marker.pid;
+            if (replacing && was_counting) {
+                int64_t boundary = session_changed ? fw.opentime - 1 : wall;
+                if (close_counting(&t, &fw, have_fw, present,
+                                   boundary, !session_changed) != 0) {
                     status = 1;
                     break;
                 }
-                tracker_flush(&t, present, time(NULL));
-                last_loop = -1;
-                reader_bookid = s.bookid;
-                reader_opentime = s.opentime;
-                persist_reader_freeze(fp, s.bookid, s.opentime);
-                reader_pid = 0;
-                rstate = RS_FROZEN;
+                was_counting = 0;
             }
+            if (tracker_prepare(&t, &fw, present) != 0
+                || write_reader_session(marker.pid, fw.bookid, fw.opentime) != 0) {
+                status = 1;
+                break;
+            }
+            reader_pid = marker.pid;
+            reader_book = fw.bookid;
+            reader_open = fw.opentime;
+            rstate = RS_TRACKING;
+            foreground = FG_FOREGROUND;
+            session_changed = 0;
+        } else if (session_changed && marker_status == MARKER_VALID
+                   && marker_matches && marker_live) {
+            /* Matching but not foreground: keep the new session pending. */
+            if (was_counting && tracker_flush(&t, present, fw.opentime - 1) != 0) {
+                status = 1;
+                break;
+            }
+            was_counting = 0;
+            rstate = RS_UNTRACKED;
+            reader_pid = 0;
+            reader_book = reader_open = 0;
+            unlink(READER_SESSION);
+            if (running)
+                wait_for_tick(&deadline);
+            continue;
         }
 
-        /* Accumulate monotonic awake time unless frozen. */
-        if (rstate != RS_FROZEN) {
-            if (add_awake_time(&present, &last_loop) != 0) {
-                perror("Better Stats daemon: clock_gettime");
+        if (marker_status == MARKER_VALID && relation == REL_LEGACY
+            && !marker_live
+            && !(rstate == RS_TRACKING && reader_pid == marker.pid
+                 && !session_changed)) {
+            unlink_marker_if_matches(&marker);
+            marker_status = MARKER_ABSENT;
+            marker_matches = 0;
+        }
+
+        if (have_fw && marker_matches && !marker_live
+            && !(rstate == RS_TRACKING && reader_pid == marker.pid
+                 && !session_changed)) {
+            if (tracker_prepare(&t, &fw, present) != 0
+                || tracker_observe(&t, &fw, present) < 0
+                || persist_freeze(&marker, fw.bookid, fw.opentime) != 0) {
+                status = 1;
+                break;
+            }
+            reader_pid = 0;
+            reader_book = fw.bookid;
+            reader_open = fw.opentime;
+            rstate = RS_FROZEN;
+            was_counting = 0;
+        } else if (rstate == RS_TRACKING && !pid_exists(reader_pid)) {
+            reader_marker old = {reader_pid, 0}, current = {0, 0};
+            if (read_reader_marker(&current) == MARKER_VALID
+                && current.pid == reader_pid)
+                old = current;
+            if (close_counting(&t, &fw, have_fw, present, wall, 1) != 0
+                || persist_freeze(&old, reader_book, reader_open) != 0) {
+                status = 1;
+                break;
+            }
+            reader_pid = 0;
+            rstate = RS_FROZEN;
+            was_counting = 0;
+        } else if (session_changed) {
+            if (was_counting && tracker_flush(&t, present, fw.opentime - 1) != 0) {
+                status = 1;
+                break;
+            }
+            was_counting = 0;
+            rstate = RS_UNTRACKED;
+            reader_pid = 0;
+            reader_book = reader_open = 0;
+            unlink(READER_SESSION);
+        }
+
+        if (rstate == RS_TRACKING) {
+            enum foreground_state observed = reader_foreground(&task, reader_pid);
+            if (observed != FG_UNKNOWN)
+                foreground = observed;
+        }
+
+        int counting_now = 0;
+        if (have_fw && !locked) {
+            if (rstate == RS_TRACKING)
+                counting_now = foreground == FG_FOREGROUND;
+            else if (rstate == RS_UNTRACKED && marker_status == MARKER_ABSENT)
+                counting_now = fallback_app_allowed(&task);
+        } else if (!have_fw && rstate == RS_TRACKING && !locked) {
+            counting_now = foreground == FG_FOREGROUND;
+        }
+
+        if (counting_now && !was_counting) {
+            int failed = have_fw
+                ? tracker_prepare(&t, &fw, present) != 0
+                    || tracker_resume(&t, present, wall) != 0
+                    || tracker_observe(&t, &fw, present) < 0
+                : tracker_resume(&t, present, wall) != 0;
+            if (failed) {
+                status = 1;
+                break;
+            }
+        } else if (counting_now) {
+            if (have_fw && tracker_observe(&t, &fw, present) < 0) {
+                status = 1;
+                break;
+            }
+        } else if (was_counting) {
+            if (close_counting(&t, &fw, have_fw, present, wall, 1) != 0) {
                 status = 1;
                 break;
             }
         }
-
-        if (have_state)
-            tracker_observe(&t, &s, present);
+        was_counting = counting_now;
         if (running)
-            wait_for_library_change(wfd);
+            wait_for_tick(&deadline);
     }
-    if (status == 0 && rstate != RS_FROZEN
-        && add_awake_time(&present, &last_loop) != 0) {
-        perror("Better Stats daemon: clock_gettime");
-        status = 1;
+
+    if (status == 0) {
+        struct timespec final_clock;
+        int64_t final_ns = clock_ns(&final_clock);
+        if (final_ns < 0) {
+            status = 1;
+        } else {
+            if (was_counting && final_ns > last_ns)
+                present_ns += final_ns - last_ns;
+            if (tracker_flush(&t, present_ns / 1000000000LL,
+                              (int64_t)time(NULL)) != 0)
+                status = 1;
+        }
     }
-    tracker_flush(&t, present, time(NULL));
-    if (wfd >= 0)
-        close(wfd);
+
+cleanup:
     tracker_close(&t);
     unlink(PIDFILE);
     return status;

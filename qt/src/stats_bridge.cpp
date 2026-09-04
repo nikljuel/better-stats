@@ -285,16 +285,9 @@ QVariantList StatsBridge::todaySessions()
             QDateTime::fromSecsSinceEpoch(session.end_time).toLocalTime()
                 .toString(QStringLiteral("HH:mm:ss"));
         row[QStringLiteral("activeSecs")] = qlonglong(session.active_seconds);
-        row[QStringLiteral("spanSecs")] = qlonglong(
-            session.end_time > session.start_time
-                ? session.end_time - session.start_time : 0);
         if (session.pages_known) {
-            row[QStringLiteral("pages")] = QStringLiteral("%1\u2192%2 (%3)")
-                .arg(session.pages_start).arg(session.pages_end)
-                .arg(session.pages_moved);
-        } else if (session.pages_moved > 0) {
-            row[QStringLiteral("pages")] = QStringLiteral("\u2013 (%1)")
-                .arg(session.pages_moved);
+            row[QStringLiteral("pages")] = QStringLiteral("%1\u2192%2")
+                .arg(session.pages_start).arg(session.pages_end);
         } else {
             row[QStringLiteral("pages")] = QStringLiteral("\u2013");
         }

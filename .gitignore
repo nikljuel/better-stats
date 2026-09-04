@@ -1,9 +1,7 @@
 # Build output
-build/
-build-qt/
-build-hardfp/
-build-package/
+build*/
 *.app
+!packaging/BetterStats.app
 
 # Fetched by `make sdk` (see BUILDING.md)
 third_party/pocketbook-sdk-qt6/

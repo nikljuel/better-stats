@@ -17,6 +17,7 @@
 #define PROC_DIR TEST_DIR "/proc"
 #define STATS_DB_TEST TEST_DIR "/stats.db"
 #define EXPLORER_DB_TEST TEST_DIR "/explorer.db"
+#define DEVICE_STATE_TEST TEST_DIR "/device.state"
 
 static char *test_argv0;
 
@@ -49,6 +50,7 @@ static void clean_state(void)
     unlink(EXPLORER_DB_TEST);
     unlink(READER_PIDFILE);
     unlink(READER_SESSION);
+    unlink(DEVICE_STATE_TEST);
 }
 
 static void write_explorer(int bookid, int opentime)
@@ -91,7 +93,7 @@ static int64_t read_active_seconds(int bookid)
     assert(sqlite3_open(STATS_DB_TEST, &db) == SQLITE_OK);
     sqlite3_stmt *st = NULL;
     assert(sqlite3_prepare_v2(db,
-        "SELECT active_seconds FROM sessions WHERE book_id=?1", -1,
+        "SELECT IFNULL(SUM(active_seconds),0) FROM sessions WHERE book_id=?1", -1,
         &st, NULL) == SQLITE_OK);
     sqlite3_bind_int(st, 1, bookid);
     int64_t val = 0;
@@ -100,6 +102,22 @@ static int64_t read_active_seconds(int bookid)
     sqlite3_finalize(st);
     assert(sqlite3_close(db) == SQLITE_OK);
     return val;
+}
+
+static int read_active_rows(int bookid)
+{
+    sqlite3 *db = NULL;
+    assert(sqlite3_open(STATS_DB_TEST, &db) == SQLITE_OK);
+    sqlite3_stmt *st = NULL;
+    assert(sqlite3_prepare_v2(db,
+        "SELECT COUNT(*) FROM sessions WHERE book_id=?1 AND active_seconds>0",
+        -1, &st, NULL) == SQLITE_OK);
+    sqlite3_bind_int(st, 1, bookid);
+    assert(sqlite3_step(st) == SQLITE_ROW);
+    int value = sqlite3_column_int(st, 0);
+    sqlite3_finalize(st);
+    assert(sqlite3_close(db) == SQLITE_OK);
+    return value;
 }
 
 static void write_pid(const char *path, pid_t pid)
@@ -115,6 +133,14 @@ static void write_timed_reader_pid(pid_t pid, int64_t started_at)
     FILE *f = fopen(READER_PIDFILE, "w");
     assert(f != NULL);
     fprintf(f, "%d %lld\n", (int)pid, (long long)started_at);
+    assert(fclose(f) == 0);
+}
+
+static void write_device_state(int locked, pid_t pid, const char *app)
+{
+    FILE *f = fopen(DEVICE_STATE_TEST, "w");
+    assert(f != NULL);
+    fprintf(f, "%d %d %s\n", locked, (int)pid, app);
     assert(fclose(f) == 0);
 }
 
@@ -224,6 +250,7 @@ static void test_reader_tracking(void)
     /* A: start daemon with a living "reader" PID. */
     pid_t reader_a = make_sleeping_child();
     write_pid(READER_PIDFILE, reader_a);
+    write_device_state(0, reader_a, "eink-reader.app");
 
     pid_t daemon = start_daemon();
     sleep_ms(2200);
@@ -231,6 +258,7 @@ static void test_reader_tracking(void)
     /* A new handler may overwrite the marker before death is detected. */
     pid_t reader_b = make_sleeping_child();
     write_pid(READER_PIDFILE, reader_b);
+    write_device_state(0, reader_b, "eink-reader.app");
     kill_and_wait(reader_a);
 
     /* The marker survives A's death and B is adopted for the same firmware
@@ -264,24 +292,32 @@ static void test_reader_tracking(void)
     puts("  ok");
 }
 
-/* A new unhandled session must not adopt the previous reader's live marker. */
+/* A matching marker stays pending until that reader is actually foreground. */
 static void test_quick_unhandled_switch(void)
 {
-    puts("test_quick_unhandled_switch...");
+    puts("test_pending_reader_switch...");
     clean_state();
     write_explorer(1, 1000);
 
     pid_t reader = make_sleeping_child();
     write_pid(READER_PIDFILE, reader);
+    write_device_state(0, reader, "eink-reader.app");
     pid_t daemon = start_daemon();
     sleep_ms(2200);
 
+    pid_t next = make_sleeping_child();
     update_explorer(2, 2000);
-    for (int i = 0; i < 60 && access(READER_PIDFILE, F_OK) == 0; ++i)
-        sleep_ms(100);
-    assert(access(READER_PIDFILE, F_OK) != 0);
+    write_timed_reader_pid(next, 2000);
+    write_device_state(0, getpid(), "bookshelf.app");
+    sleep_ms(1200);
+    assert(read_pid(READER_PIDFILE) == (int)next);
+    assert(read_active_seconds(2) == 0);
 
+    write_device_state(0, next, "eink-reader.app");
+    sleep_ms(1200);
+    assert_reader_session((int)next, 2, 2000);
     kill_and_wait(reader);
+    kill_and_wait(next);
     sleep_ms(1200);
     stop_daemon_and_wait(daemon);
     assert(read_active_seconds(2) >= 1);
@@ -296,7 +332,8 @@ static void test_stale_session_at_restart(void)
     write_explorer(2, 2000);
 
     pid_t reader = make_sleeping_child();
-    write_pid(READER_PIDFILE, reader);
+    write_timed_reader_pid(reader, 1000);
+    write_device_state(0, reader, "eink-reader.app");
     FILE *f = fopen(READER_SESSION, "w");
     assert(f != NULL);
     fprintf(f, "%d 1 1000\n", (int)reader);
@@ -325,6 +362,7 @@ static void test_pid_waits_for_firmware_session(void)
 
     pid_t reader = make_sleeping_child();
     write_timed_reader_pid(reader, 2000);
+    write_device_state(0, reader, "eink-reader.app");
     pid_t daemon = start_daemon();
     sleep_ms((POLL_SECONDS + 1) * 1000);
     assert(access(READER_SESSION, F_OK) != 0);
@@ -350,7 +388,7 @@ static void test_dead_before_adoption(void)
 
     pid_t reader = make_sleeping_child();
     kill_and_wait(reader);
-    write_pid(READER_PIDFILE, reader);
+    write_timed_reader_pid(reader, 4000);
 
     pid_t daemon = start_daemon();
     sleep_ms((POLL_SECONDS + 1) * 1000);
@@ -371,6 +409,7 @@ static void test_restart_immediately_after_reader_death(void)
 
     pid_t reader = make_sleeping_child();
     write_pid(READER_PIDFILE, reader);
+    write_device_state(0, reader, "eink-reader.app");
     pid_t daemon = start_daemon();
     for (int i = 0; i < 200 && access(READER_SESSION, F_OK) != 0; ++i)
         sleep_ms(10);
@@ -437,12 +476,71 @@ static void test_persisted_freeze(void)
     puts("  ok");
 }
 
+/* Foreground and keylock transitions split measured fragments. An unknown
+ * task retains the last known foreground decision instead of guessing. */
+static void test_device_state_gates(void)
+{
+    puts("test_device_state_gates...");
+    clean_state();
+    write_explorer(6, 6000);
+    pid_t reader = make_sleeping_child();
+    write_timed_reader_pid(reader, 6000);
+    write_device_state(0, reader, "eink-reader.app");
+    pid_t daemon = start_daemon();
+
+    sleep_ms(2200);
+    write_device_state(1, reader, "eink-reader.app");
+    sleep_ms(1200);
+    int64_t after_lock = read_active_seconds(6);
+    assert(after_lock >= 1);
+    sleep_ms(1200);
+    assert(read_active_seconds(6) == after_lock);
+
+    write_device_state(0, reader, "eink-reader.app");
+    sleep_ms(1200);
+    write_device_state(0, getpid(), "bookshelf.app");
+    sleep_ms(1200);
+    int64_t after_background = read_active_seconds(6);
+    assert(after_background > after_lock);
+
+    unlink(DEVICE_STATE_TEST); /* UNKNOWN keeps the known background state. */
+    sleep_ms(1200);
+    assert(read_active_seconds(6) == after_background);
+
+    write_device_state(0, reader, "eink-reader.app");
+    sleep_ms(2200);
+    stop_daemon_and_wait(daemon);
+    assert(read_active_seconds(6) > after_background);
+    assert(read_active_rows(6) == 3);
+    kill_and_wait(reader);
+    puts("  ok");
+}
+
+/* Without a handler marker the fallback is deliberately fail-open, except for
+ * the launcher and Better Stats itself. */
+static void test_untracked_app_exclusions(void)
+{
+    puts("test_untracked_app_exclusions...");
+    clean_state();
+    write_explorer(7, 7000);
+    write_device_state(0, getpid(), "bookshelf.app");
+    pid_t daemon = start_daemon();
+    sleep_ms(1200);
+    assert(read_active_seconds(7) == 0);
+    write_device_state(0, getpid(), "koreader.app");
+    sleep_ms(2200);
+    stop_daemon_and_wait(daemon);
+    assert(read_active_seconds(7) >= 1);
+    puts("  ok");
+}
+
 int main(int argc, char **argv)
 {
     if (argc == 2 && strcmp(argv[1], "--daemon") == 0)
         return run_daemon();
 
     test_argv0 = argv[0];
+    setbuf(stdout, NULL);
     mkdir(TEST_DIR, 0755);
     mkdir(PROC_DIR, 0755);
     assert(setenv("BETTERSTATS_DB", STATS_DB_TEST, 1) == 0);
@@ -456,6 +554,8 @@ int main(int argc, char **argv)
     test_dead_before_adoption();
     test_restart_immediately_after_reader_death();
     test_persisted_freeze();
+    test_device_state_gates();
+    test_untracked_app_exclusions();
 
     puts("all daemon tests ok");
     return 0;

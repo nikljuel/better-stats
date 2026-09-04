@@ -1237,6 +1237,7 @@ int bs_load_today_sessions(bs_context *context, bs_session_list *out,
         " s.pages_start,s.pages_end,s.pages_moved"
         " FROM sessions s LEFT JOIN books b ON b.book_id=s.book_id"
         " WHERE date(s.end_time,'unixepoch','localtime')=date('now','localtime')"
+        " AND s.active_seconds>0"
         " ORDER BY s.start_time DESC,s.book_id DESC";
     sqlite3_stmt *statement = NULL;
     if (sqlite3_prepare_v2(context->stats, sql, -1, &statement, NULL) != SQLITE_OK)

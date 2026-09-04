@@ -168,7 +168,7 @@ int main(void)
     ex(exp, "INSERT INTO books_impl VALUES(8,'Fertig','Autor');"
             "INSERT INTO books_settings VALUES(8,1,'p',0,0,0,0,1,23456)");
     assert(tracker_init(&t, ST_DB, EXP_DB) == 0);
-    assert(tracker_recover(&t) >= 1);
+    assert(tracker_recover(&t, 0, 0) >= 1);
     assert(q1(t.stats, "SELECT COUNT(*) FROM sessions") == 2);
     assert(q1(t.stats, "SELECT completed_ts FROM books WHERE book_id=8") == 23456);
     assert(q1(t.stats, "SELECT COUNT(*) FROM sessions WHERE book_id=8") == 0);
@@ -176,7 +176,7 @@ int main(void)
     ex(t.stats, "DELETE FROM books WHERE book_id=8");
     ex(exp, "DELETE FROM books_settings WHERE bookid=8;"
             "DELETE FROM books_impl WHERE id=8");
-    tracker_recover(&t); /* idempotent */
+    tracker_recover(&t, 0, 0); /* idempotent */
     assert(q1(t.stats, "SELECT COUNT(*) FROM sessions") == 2);
 
     /* Archive migration: recovered rows from a pre-fix DB are moved */
@@ -403,7 +403,7 @@ int main(void)
     set_state(exp, 950000, 950500, 300);
     tracker_close(&t);
     assert(tracker_init(&t, ST_DB, EXP_DB) == 0);
-    assert(tracker_recover(&t) >= 1);
+    assert(tracker_recover(&t, 0, 0) >= 1);
     assert(q1(t.stats, "SELECT COUNT(*) FROM sessions WHERE start_time=950000") == 0);
     assert(q1(t.stats, "SELECT book_id FROM books WHERE book_id=7") == 7);
     assert(tracker_read_state(EXP_DB, &s) == 0);
@@ -583,6 +583,71 @@ int main(void)
     }
     ex(t.stats, "DELETE FROM sessions WHERE book_id=77;"
                 "DELETE FROM books WHERE book_id=77");
+    t.cur_book = 0;
+
+    /* Pauses are separate rows within one firmware opentime. A transition in
+     * the row's start second merges; a later resume starts a new fragment. */
+    {
+        pb_state p;
+        memset(&p, 0, sizeof p);
+        p.bookid = 80; p.opentime = 1400000; p.position_ts = 1400000;
+        p.cpage = 10; p.npage = 100;
+        snprintf(p.title, sizeof p.title, "Fragments");
+        assert(tracker_prepare(&t, &p, 0) == 0);
+        assert(tracker_resume(&t, 0, 1400000) == 0); /* same-second merge */
+        assert(tracker_observe(&t, &p, 0) == 0);
+        p.position_ts = 1400060; p.cpage = 11;
+        assert(tracker_observe(&t, &p, 60) == 2);
+        assert(tracker_flush(&t, 60, 1400060) == 0);
+        assert(tracker_resume(&t, 60, 1400100) == 0);
+        assert(tracker_observe(&t, &p, 60) == 0);
+        assert(tracker_flush(&t, 120, 1400160) == 0);
+        assert(q1(t.stats, "SELECT COUNT(*) FROM sessions WHERE book_id=80") == 2);
+        assert(q1(t.stats, "SELECT SUM(active_seconds) FROM sessions"
+                           " WHERE book_id=80") == 120);
+
+        /* A failed write rolls back both tables and the proposed C state. */
+        tracker before = t;
+        long old_end = q1(t.stats, "SELECT MAX(end_time) FROM sessions"
+                                   " WHERE book_id=80");
+        ex(t.stats, "CREATE TRIGGER fail_session_update BEFORE UPDATE ON sessions"
+                    " BEGIN SELECT RAISE(ABORT,'test'); END");
+        p.position_ts = 1400220; p.cpage = 12;
+        assert(tracker_observe(&t, &p, 180) < 0);
+        assert(memcmp(&t, &before, sizeof(t)) == 0);
+        assert(q1(t.stats, "SELECT MAX(end_time) FROM sessions"
+                           " WHERE book_id=80") == old_end);
+        ex(t.stats, "DROP TRIGGER fail_session_update");
+        assert(tracker_observe(&t, &p, 180) == 2);
+    }
+    ex(t.stats, "DELETE FROM sessions WHERE book_id=80;"
+                "DELETE FROM books WHERE book_id=80");
+    t.cur_book = 0;
+
+    /* A page change durable in books but not yet in the last fragment is
+     * charged once and shown as the next fragment's start-to-end change. */
+    {
+        pb_state p;
+        memset(&p, 0, sizeof p);
+        p.bookid = 81; p.opentime = 1500000; p.position_ts = 1500060;
+        p.cpage = 12; p.npage = 100;
+        ex(t.stats,
+            "INSERT INTO books(book_id,title,cpage,npage,last_seen)"
+            " VALUES(81,'Catchup',12,100,1500060);"
+            "INSERT INTO sessions(book_id,start_time,end_time,active_seconds,"
+            " pages_start,pages_end,pages_moved)"
+            " VALUES(81,1500000,1500030,30,10,10,1)");
+        assert(tracker_prepare(&t, &p, 30) == 0);
+        assert(tracker_resume(&t, 30, 1500100) == 0);
+        assert(q1(t.stats, "SELECT pages_start FROM sessions"
+                           " WHERE book_id=81 AND start_time=1500100") == 10);
+        assert(q1(t.stats, "SELECT pages_end FROM sessions"
+                           " WHERE book_id=81 AND start_time=1500100") == 12);
+        assert(q1(t.stats, "SELECT pages_moved FROM sessions"
+                           " WHERE book_id=81 AND start_time=1500100") == 3);
+    }
+    ex(t.stats, "DELETE FROM sessions WHERE book_id=81;"
+                "DELETE FROM books WHERE book_id=81");
     t.cur_book = 0;
 
     /* Pages/hour uses net forward progress over all measured reading time.

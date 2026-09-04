@@ -102,10 +102,14 @@ grep -q '^hardfp:--daemon$' "$calls"
 
 : > "$calls"
 BETTERSTATS_ABI=softfp BETTERSTATS_STOP_TEST=fail \
-    BETTERSTATS_QT_TEST=ready run_launcher
+    BETTERSTATS_QT_TEST=ready run_launcher && {
+        echo "launcher continued after failed daemon stop" >&2
+        exit 1
+    }
 grep -q '^softfp:--stop-daemon$' "$calls"
-grep -q '^softfp:--prepare$' "$calls"
-grep -q '^qt$' "$calls"
+! grep -q '^softfp:--prepare$' "$calls"
+! grep -q '^softfp:--daemon$' "$calls"
+! grep -q '^qt$' "$calls"
 grep -q 'could not flush running daemon before launch' \
     "$tmp/system/pbreadstats/app.log"
 

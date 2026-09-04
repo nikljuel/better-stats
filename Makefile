@@ -32,6 +32,7 @@ test:
 	  src/tracker.c src/stats_db.c -lsqlite3
 	./build/test_tracker
 	cc $(CFLAGS) -Itest/include -Isrc \
+	  -DBETTERSTATS_DEVICE_STATE_TEST \
 	  -DSTATS_DIR='"/tmp/bs_daemon_test"' \
 	  -DPIDFILE='"/tmp/bs_daemon_test/daemon.pid"' \
 	  -DLEGACY_PIDFILE='"/tmp/bs_daemon_test/legacy.pid"' \
@@ -39,7 +40,8 @@ test:
 	  -DPOLL_SECONDS=1 \
 	  -DREADER_PIDFILE='"/tmp/bs_daemon_test/reader.pid"' \
 	  -DREADER_SESSION='"/tmp/bs_daemon_test/reader.session"' \
-	  -o build/test_daemon test/test_daemon.c src/daemon.c src/tracker.c src/paths.c \
+	  -o build/test_daemon test/test_daemon.c test/inkview_stubs.c \
+	  src/daemon.c src/tracker.c src/paths.c \
 	  -lsqlite3
 	./build/test_daemon
 	cc $(CFLAGS) -Isrc -o build/test_file_handler_config \

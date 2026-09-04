@@ -210,10 +210,9 @@ Window {
         readonly property var columns: [
             { text: Tr.t("Start", "Start"), width: 0.13 },
             { text: Tr.t("Ende", "End"), width: 0.13 },
-            { text: Tr.t("Getrackt", "Tracked"), width: 0.15 },
-            { text: Tr.t("Spanne", "Span"), width: 0.14 },
+            { text: Tr.t("Dauer", "Duration"), width: 0.17 },
             { text: Tr.t("Seiten", "Pages"), width: 0.20 },
-            { text: Tr.t("Buch", "Book"), width: 0.25 }
+            { text: Tr.t("Buch", "Book"), width: 0.37 }
         ]
         title: Tr.t("Sessions heute", "Today's sessions")
 
@@ -277,7 +276,6 @@ Window {
                     modelData.start,
                     modelData.end,
                     sessionDialog.fmtDuration(modelData.activeSecs),
-                    sessionDialog.fmtDuration(modelData.spanSecs),
                     modelData.pages,
                     modelData.title
                 ]

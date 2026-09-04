@@ -41,3 +41,12 @@ STUB(HideHourglass)
 STUB(currentLang)
 STUB(iv_get_default_font)
 STUB(iv_ipc_request)
+
+void InitInkview(int flags) { (void)flags; }
+void GetActiveTask(int *task, int *subtask)
+{
+    if (task) *task = 0;
+    if (subtask) *subtask = 0;
+}
+void *GetTaskInfo(int task) { (void)task; return 0; }
+int get_keylock(void) { return 0; }

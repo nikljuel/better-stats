@@ -303,8 +303,8 @@ int main(void)
                   "/tmp/bs_model_firmware_covers/1bb.png") == 0);
     bs_year_books_free(&books);
 
-    /* Diagnostic list includes every row ending today, including zero-time
-     * rows, and leaves yesterday out. */
+    /* Diagnostic list includes measured rows ending today, but not zero-time
+     * placeholders or yesterday's rows. */
     sqlite3 *stats = NULL;
     assert(sqlite3_open(stats_path, &stats) == SQLITE_OK);
     sql(stats,
@@ -324,17 +324,12 @@ int main(void)
 
     bs_session_list sessions;
     assert(bs_load_today_sessions(context, &sessions, &error) == 0);
-    assert(sessions.count == 2);
-    assert(strcmp(sessions.sessions[0].title, "Beta") == 0);
-    assert(sessions.sessions[0].end_time - sessions.sessions[0].start_time == 30);
-    assert(sessions.sessions[0].active_seconds == 0);
-    assert(!sessions.sessions[0].pages_known);
-    assert(strcmp(sessions.sessions[1].title, "Alpha") == 0);
-    assert(sessions.sessions[1].active_seconds == 180);
-    assert(sessions.sessions[1].pages_known);
-    assert(sessions.sessions[1].pages_start == 25);
-    assert(sessions.sessions[1].pages_end == 27);
-    assert(sessions.sessions[1].pages_moved == 3);
+    assert(sessions.count == 1);
+    assert(strcmp(sessions.sessions[0].title, "Alpha") == 0);
+    assert(sessions.sessions[0].active_seconds == 180);
+    assert(sessions.sessions[0].pages_known);
+    assert(sessions.sessions[0].pages_start == 25);
+    assert(sessions.sessions[0].pages_end == 27);
     bs_session_list_free(&sessions);
 
     bs_context_close(context);
