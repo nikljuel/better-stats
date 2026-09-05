@@ -20,6 +20,9 @@
 #ifndef READER_SESSION
 #define READER_SESSION "/tmp/betterstats-reader.session"
 #endif
+#ifndef CURRENT_BOOK_FILE
+#define CURRENT_BOOK_FILE "/tmp/.current"
+#endif
 #ifndef COVER_DIR
 #define COVER_DIR "/mnt/ext1/system/cover_chache/hashed"
 #endif

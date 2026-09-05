@@ -16,6 +16,7 @@ pocketbook_add_app(BetterStats
     src/stats_db.c
     src/stats_model.c
     src/daemon.c
+    src/daemon_singleton.c
     src/paths.c
     src/file_handler_config.c
     src/autostart.c
@@ -44,6 +45,7 @@ add_executable(BetterStatsInkView
   src/stats_db.c
   src/stats_model.c
   src/daemon.c
+  src/daemon_singleton.c
   src/paths.c
   src/file_handler_config.c
   src/autostart.c

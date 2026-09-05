@@ -6,6 +6,7 @@ HARD_FP_IMG := betterstats-hardfp-builder
 INKVIEW_INCLUDE := third_party/pocketbook-sdk-qt6/sdk/SDK-B288/usr/arm-obreey-linux-gnueabi/sysroot/usr/local/include
 INKVIEW_SOURCES := inkview/main.c src/tracker.c src/stats_db.c src/stats_model.c \
 	  src/daemon.c src/paths.c src/file_handler_config.c src/autostart.c src/updater.c \
+	  src/daemon_singleton.c \
 	  src/sha256.c qt/third_party/sqlite3.c qt/third_party/miniz.c
 PACKAGE_VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 PACKAGE_ROOT := build-package/BetterStats
@@ -31,6 +32,13 @@ test:
 	cc $(CFLAGS) -o build/test_tracker test/test_tracker.c \
 	  src/tracker.c src/stats_db.c -lsqlite3
 	./build/test_tracker
+	cc $(CFLAGS) -Werror -Isrc -DDAEMON_SINGLETON_TEST \
+	  -DDAEMON_STABILIZE_MS=10 -DDAEMON_POLL_MS=10 \
+	  -DDAEMON_CURRENT_STOP_MS=1000 -DDAEMON_LEGACY_STOP_MS=1000 \
+	  -DDAEMON_RECONCILE_MS=3000 \
+	  -o build/test_daemon_singleton test/test_daemon_singleton.c \
+	  src/daemon_singleton.c
+	./build/test_daemon_singleton
 	cc $(CFLAGS) -Itest/include -Isrc \
 	  -DBETTERSTATS_DEVICE_STATE_TEST \
 	  -DSTATS_DIR='"/tmp/bs_daemon_test"' \
@@ -38,8 +46,11 @@ test:
 	  -DLEGACY_PIDFILE='"/tmp/bs_daemon_test/legacy.pid"' \
 	  -DPROC_ROOT='"/tmp/bs_daemon_test/proc"' \
 	  -DPOLL_SECONDS=1 \
+	  -DTRACKER_CHECKPOINT_SECONDS=2 \
 	  -DREADER_PIDFILE='"/tmp/bs_daemon_test/reader.pid"' \
 	  -DREADER_SESSION='"/tmp/bs_daemon_test/reader.session"' \
+	  -DCURRENT_BOOK_FILE='"/tmp/bs_daemon_test/current"' \
+	  -DBETTERSTATS_CLOCK_BOOTTIME=12345 \
 	  -o build/test_daemon test/test_daemon.c test/inkview_stubs.c \
 	  src/daemon.c src/tracker.c src/paths.c \
 	  -lsqlite3

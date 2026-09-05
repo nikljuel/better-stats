@@ -1,5 +1,6 @@
 /* Link-only InkView stub for hard-float firmware. The real symbols are supplied
  * by /ebrmain/lib/libinkview.so on the reader. */
+typedef struct taskinfo_s taskinfo;
 #define STUB(name) void name(void) {}
 
 STUB(ClearScreen)
@@ -48,5 +49,12 @@ void GetActiveTask(int *task, int *subtask)
     if (task) *task = 0;
     if (subtask) *subtask = 0;
 }
-void *GetTaskInfo(int task) { (void)task; return 0; }
+taskinfo *GetTaskInfo(int task) { (void)task; return 0; }
+int FindTaskByBook(const char *name, int *task, int *subtask)
+{
+    (void)name;
+    if (task) *task = 0;
+    if (subtask) *subtask = 0;
+    return -1;
+}
 int get_keylock(void) { return 0; }

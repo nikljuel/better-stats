@@ -1,10 +1,13 @@
 #include "autostart.h"
+#include "daemon.h"
 
 #include <assert.h>
+#include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <sys/wait.h>
 #include <unistd.h>
 
 #define ROOT "/tmp/bs_autostart_test"
@@ -16,6 +19,10 @@
 #define BACKUP_PATH CONFIG_DIR "/extensions.cfg.backup"
 #define HANDLER_PATH_TEST BIN_DIR "/betterstats-handler.app"
 #define DISABLED_PATH STATS_PATH "/autostart-disabled"
+#define RUNTIME_HANDLER ROOT "/marker-handler.sh"
+#define FALLBACK_HANDLER ROOT "/marker-handler-fallback.sh"
+#define RUNTIME_MARKER ROOT "/reader.pid"
+#define FALLBACK_MARKER ROOT "/reader-fallback.pid"
 
 static const char stock_config[] =
     "fb2:@FB2_file:1:eink-reader.app:ICON_FB2\n"
@@ -45,6 +52,103 @@ static char *read_text(const char *path)
     return text;
 }
 
+static char *replace_all(const char *input, const char *needle,
+                         const char *replacement)
+{
+    assert(needle[0] != '\0');
+    size_t count = 0;
+    const char *at = input;
+    while ((at = strstr(at, needle)) != NULL) {
+        count++;
+        at += strlen(needle);
+    }
+    size_t input_size = strlen(input);
+    size_t needle_size = strlen(needle);
+    size_t replacement_size = strlen(replacement);
+    size_t output_size = input_size;
+    if (replacement_size >= needle_size)
+        output_size += count * (replacement_size - needle_size);
+    else
+        output_size -= count * (needle_size - replacement_size);
+    char *output = malloc(output_size + 1);
+    assert(output != NULL);
+    char *out = output;
+    at = input;
+    const char *match;
+    while ((match = strstr(at, needle)) != NULL) {
+        size_t prefix = (size_t)(match - at);
+        memcpy(out, at, prefix);
+        out += prefix;
+        memcpy(out, replacement, replacement_size);
+        out += replacement_size;
+        at = match + needle_size;
+    }
+    strcpy(out, at);
+    return output;
+}
+
+static void write_marker_prefix(const char *handler, const char *script_path,
+                                const char *marker_path, int force_fallback)
+{
+    char *script = replace_all(handler, READER_PIDFILE, marker_path);
+    if (force_fallback) {
+        char *changed = replace_all(script, "/proc/$$/stat",
+                                    ROOT "/missing-proc-stat");
+        free(script);
+        script = changed;
+    }
+    char *daemon_start = strstr(script,
+        "[ -x \"$app\" ] && \"$app\" --daemon");
+    assert(daemon_start != NULL);
+    strcpy(daemon_start, "exit 0\n");
+    write_text(script_path, script);
+    assert(chmod(script_path, 0755) == 0);
+    free(script);
+}
+
+static void run_script(const char *script, const char *book_path)
+{
+    pid_t child = fork();
+    assert(child >= 0);
+    if (child == 0) {
+        int nullfd = open("/dev/null", O_WRONLY);
+        if (nullfd >= 0) {
+            dup2(nullfd, STDOUT_FILENO);
+            dup2(nullfd, STDERR_FILENO);
+            close(nullfd);
+        }
+        execl("/bin/sh", "sh", script, book_path, (char *)NULL);
+        _exit(127);
+    }
+    int status = 0;
+    assert(waitpid(child, &status, 0) == child);
+    assert(WIFEXITED(status) && WEXITSTATUS(status) == 0);
+}
+
+static void assert_marker(const char *marker_path, const char *book_path,
+                          int expected_fields)
+{
+    char *marker = read_text(marker_path);
+    char *newline = strchr(marker, '\n');
+    assert(newline != NULL);
+    *newline = '\0';
+    char *path = newline + 1;
+    char *path_end = strchr(path, '\n');
+    assert(path_end != NULL && path_end[1] == '\0');
+    *path_end = '\0';
+    assert(strcmp(path, book_path) == 0);
+
+    unsigned long long pid = 0, started = 0, proc_start = 0;
+    char extra = '\0';
+    int fields = sscanf(marker, "%llu %llu %llu %c",
+                        &pid, &started, &proc_start, &extra);
+    assert(fields == expected_fields);
+    assert(pid > 0 && started > 0);
+    if (fields == 3)
+        assert(proc_start > 0);
+    free(marker);
+}
+
 static void reset_files(void)
 {
     mkdir(ROOT, 0755);
@@ -56,6 +160,11 @@ static void reset_files(void)
     unlink(BACKUP_PATH);
     unlink(HANDLER_PATH_TEST);
     unlink(DISABLED_PATH);
+    unlink(RUNTIME_HANDLER);
+    unlink(FALLBACK_HANDLER);
+    unlink(RUNTIME_MARKER);
+    unlink(FALLBACK_MARKER);
+    unlink(ROOT "/missing-proc-stat");
     write_text(SYSTEM_CONFIG_PATH, stock_config);
     write_text(CONFIG_PATH, stock_config);
 }
@@ -130,17 +239,44 @@ int main(void)
     assert(strcmp(backup, markers) == 0);
     free(backup);
     char *handler = read_text(HANDLER_PATH_TEST);
-    assert(strstr(handler, "# Better Stats autostart v2"));
+    assert(strstr(handler, "# Better Stats autostart v3"));
     assert(strstr(handler, "after_self=0"));
     {
-        const char *pid_line = strstr(handler, "echo $$");
+        const char *function_line = strstr(handler, "read_proc_start() {");
+        const char *stat_line = strstr(handler, "stat=$(cat \"/proc/$$/stat\"");
+        const char *strip_line = strstr(handler, "rest=${stat##*\\) }");
+        const char *token_line = strstr(handler, "value=${20}");
+        const char *header_line = strstr(handler,
+            "printf '%s %s %s\\n' \"$$\"");
+        const char *fallback_line = strstr(handler,
+            "printf '%s %s\\n' \"$$\"");
+        const char *path_line = strstr(handler,
+            "printf '%s\\n' \"$1\"");
         const char *publish_line = strstr(handler, "mv -f");
         const char *daemon_line = strstr(handler, "--daemon");
-        const char *date_arg = pid_line ? strstr(pid_line, "date +%s") : NULL;
-        assert(pid_line != NULL && publish_line != NULL && daemon_line != NULL);
-        assert(pid_line < publish_line && publish_line < daemon_line);
-        assert(date_arg != NULL && date_arg < daemon_line);
+        assert(function_line != NULL && stat_line != NULL);
+        assert(strip_line != NULL && token_line != NULL);
+        assert(header_line != NULL && fallback_line != NULL && path_line != NULL);
+        assert(publish_line != NULL && daemon_line != NULL);
+        assert(function_line < stat_line && stat_line < strip_line);
+        assert(strip_line < token_line);
+        assert(token_line < header_line && header_line < path_line);
+        assert(fallback_line < path_line);
+        assert(path_line < publish_line && publish_line < daemon_line);
     }
+
+    /* Execute the generated marker prefix with an argument containing spaces.
+     * Linux exercises the three-field /proc path; hosts without /proc use the
+     * same two-field fallback as the PocketBook error path. */
+    const char *book_path = ROOT "/Books/A book with spaces.epub";
+    write_marker_prefix(handler, RUNTIME_HANDLER, RUNTIME_MARKER, 0);
+    run_script(RUNTIME_HANDLER, book_path);
+    assert_marker(RUNTIME_MARKER, book_path,
+                  access("/proc/self/stat", R_OK) == 0 ? 3 : 2);
+
+    write_marker_prefix(handler, FALLBACK_HANDLER, FALLBACK_MARKER, 1);
+    run_script(FALLBACK_HANDLER, book_path);
+    assert_marker(FALLBACK_MARKER, book_path, 2);
     free(handler);
 
     bs_autostart_set(0, &status);
