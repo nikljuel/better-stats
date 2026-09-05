@@ -30,7 +30,7 @@
     "https://api.github.com/repos/nikljuel/better-stats/releases/latest"
 
 /* Filled immediately before the release; empty text keeps the dialog hidden. */
-static const char *release_notes_version = "1.4.0";
+static const char *release_notes_version = "v1.4.0";
 static const char *release_notes_de =
     "Neu in 1.4.0:\n\n"
     "Die Zeitmessung wurde grundlegend überarbeitet. "
