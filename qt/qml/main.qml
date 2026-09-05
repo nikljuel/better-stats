@@ -11,7 +11,6 @@ Window {
     height: screenH - panelH
     color: GlobalValues.defaultBackgroundColor
     title: "Better Stats"
-    property int diagnosticTapCount: 0
 
     Component.onCompleted: {
         releaseNotesDialog.message = stats.releaseNotes(deviceLang)
@@ -64,31 +63,17 @@ Window {
         }
     }
 
-    Item {
+    MouseArea {
         anchors.top: appHeader.top
         anchors.bottom: appHeader.bottom
         anchors.horizontalCenter: appHeader.horizontalCenter
         width: appHeader.width * 0.5
         z: appHeader.z + 1
-
-        TapHandler {
-            onTapped: {
-                root.diagnosticTapCount++
-                diagnosticTapReset.restart()
-                if (root.diagnosticTapCount === 5) {
-                    diagnosticTapReset.stop()
-                    root.diagnosticTapCount = 0
-                    sessionDialog.sessions = stats.todaySessions()
-                    sessionDialog.visible = true
-                }
-            }
+        pressAndHoldInterval: 2000
+        onPressAndHold: {
+            sessionDialog.sessions = stats.todaySessions()
+            sessionDialog.visible = true
         }
-    }
-
-    Timer {
-        id: diagnosticTapReset
-        interval: 3000
-        onTriggered: root.diagnosticTapCount = 0
     }
 
     // Firmware-style tab bar: four large zones, active tab underlined.

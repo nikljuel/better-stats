@@ -30,15 +30,33 @@
     "https://api.github.com/repos/nikljuel/better-stats/releases/latest"
 
 /* Filled immediately before the release; empty text keeps the dialog hidden. */
-static const char *release_notes_version = "v1.3.2";
+static const char *release_notes_version = "1.4.0";
 static const char *release_notes_de =
-    "Neu in 1.3.2:\n"
-    "- Ein Fehler wurde behoben, durch den das automatische Tracking nach "
-    "einem Update-Neustart ausfallen konnte.";
+    "Neu in 1.4.0:\n\n"
+    "Die Zeitmessung wurde grundlegend überarbeitet. "
+    "Ein neuer Hintergrund-Daemon misst die Lesezeit jetzt "
+    "sekundengenau und erkennt Zustandswechsel sofort.\n\n"
+    "- Lesezeit wird beim Sperren des Geräts, App-Wechsel oder "
+    "Schließen des Buchs sofort gestoppt\n"
+    "- Buchwechsel werden sauber erkannt, ohne doppelte oder "
+    "überlappende Sitzungen\n"
+    "- Leerlaufzeit wird nicht mehr gutgeschrieben, wenn ein Buch "
+    "offen liegt ohne gelesen zu werden\n"
+    "- Zeitstempel sind auch nach Uhrzeitsprüngen oder Aufwachen "
+    "aus dem Standby korrekt";
 static const char *release_notes_en =
-    "What's new in 1.3.2:\n"
-    "- Fixed an issue that could prevent automatic tracking from resuming "
-    "after an update restart.";
+    "What's new in 1.4.0:\n\n"
+    "Reading time tracking has been fundamentally reworked. "
+    "A new background daemon now measures reading time to the "
+    "second and detects state changes immediately.\n\n"
+    "- Reading time stops when locking the device, switching apps, "
+    "or closing the book\n"
+    "- Book switches are handled cleanly without duplicate or "
+    "overlapping sessions\n"
+    "- Idle time is no longer credited when a book is left open "
+    "without reading\n"
+    "- Timestamps remain accurate after clock changes or waking "
+    "from standby";
 
 static const char *release_files[] = {
     "betterstats-qt-softfp",

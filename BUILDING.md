@@ -101,9 +101,10 @@ Adjust `DEVICE` at the top of the `Makefile` to your reader's mount point
 make test
 ```
 
-Builds and runs the tracker, file-handler parser and Autostart preference,
-shared statistics model, updater release parser/settings and
-dispatcher/activation checks on the host. No device is needed.
+Builds and runs the tracker, daemon singleton, daemon integration, file-handler
+parser, Autostart preference, shared statistics model, updater release
+parser/settings and dispatcher/activation checks on the host. No device is
+needed.
 
 ## Icons
 

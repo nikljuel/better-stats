@@ -39,6 +39,8 @@ kind of stats screen you'd expect from Kobo or Fable.
 - **Automatic tracking** — starts before the stock reader opens a book,
   including when the firmware restores the last book after a reboot; it can be
   switched off on devices where the handler interferes with G-sensor rotation.
+  Tracks reading time accurately across device locks, app switches, standby,
+  book switches and clock drift.
 - **Updates over Wi-Fi** — installs stable GitHub releases without another USB
   copy; automatic updates are enabled by default and can be switched off.
 
@@ -48,11 +50,19 @@ A small background daemon samples the firmware's library database
 (`explorer-3.db`) **read-only** once per second. It counts `CLOCK_BOOTTIME` only
 while the bound reader is the foreground InkView task and the keylock is off;
 closing the reader, locking the device, or switching apps ends the current
-measured fragment. A per-page ceiling limits unattended time on one page.
-Sampling is left-continuous: the elapsed interval belongs to the state seen at
-the previous sample. A lock or app switch that happens immediately before a
-CPU suspend can therefore add the last unobserved interval, but normal changes
-are detected within about one second.
+measured fragment. A per-page ceiling (5 min/page) limits unattended time when
+a book is left open without reading. Book switches are detected atomically: the
+daemon observes the firmware database settling on a new book before crediting
+time to it, and the previous session's end time is capped at the switch boundary
+so sessions never overlap. Reader process identity is tracked by PID and kernel
+start time, preventing false matches after PID reuse. The daemon handles RTC
+drift and forward jumps by deriving timestamps from `CLOCK_BOOTTIME` and only
+using the wall clock for display; a detected rollback freezes wall-clock
+timestamps until the real clock catches up. Sessions that cross midnight are
+split at the day boundary with proportional time allocation. A checkpoint every
+60 seconds persists the current session; the per-tick sampling itself only reads
+a small marker file and process metadata from memory, keeping flash and CPU
+usage negligible.
 
 Autostart installs a small EPUB/FB2/CBZ file handler: a shell script that
 backgrounds the daemon and then `exec`s the stock reader, so it *becomes* the
