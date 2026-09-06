@@ -57,6 +57,34 @@ static const char *release_notes_en =
     "without reading\n"
     "- Timestamps remain accurate after clock changes or waking "
     "from standby";
+static const char *release_notes_fr =
+    "Nouveautés 1.4.0 :\n\n"
+    "Le suivi du temps de lecture a été entièrement remanié. "
+    "Un nouveau daemon en arrière-plan mesure désormais le temps "
+    "de lecture à la seconde près et détecte les changements d'état "
+    "immédiatement.\n\n"
+    "- Le temps de lecture s'arrête au verrouillage, changement "
+    "d'application ou fermeture du livre\n"
+    "- Les changements de livre sont gérés proprement, sans sessions "
+    "en double ni chevauchement\n"
+    "- Le temps d'inactivité n'est plus comptabilisé quand un livre "
+    "reste ouvert sans être lu\n"
+    "- Les horodatages restent précis après un changement d'heure "
+    "ou une sortie de veille";
+static const char *release_notes_es =
+    "Novedades en 1.4.0:\n\n"
+    "El seguimiento del tiempo de lectura se ha rediseñado por "
+    "completo. Un nuevo daemon en segundo plano mide ahora el "
+    "tiempo de lectura al segundo y detecta cambios de estado "
+    "de inmediato.\n\n"
+    "- El tiempo de lectura se detiene al bloquear el dispositivo, "
+    "cambiar de aplicación o cerrar el libro\n"
+    "- Los cambios de libro se gestionan correctamente, sin sesiones "
+    "duplicadas ni superpuestas\n"
+    "- El tiempo de inactividad ya no se contabiliza cuando un libro "
+    "queda abierto sin leerlo\n"
+    "- Las marcas de tiempo siguen siendo precisas tras cambios de "
+    "hora o al salir del modo de espera";
 
 static const char *release_files[] = {
     "betterstats-qt-softfp",
@@ -465,8 +493,10 @@ const char *bs_update_release_notes(const char *language)
 {
     if (!bs_update_release_notes_pending())
         return NULL;
-    return language && !strncmp(language, "de", 2)
-        ? release_notes_de : release_notes_en;
+    if (language && !strncmp(language, "de", 2)) return release_notes_de;
+    if (language && !strncmp(language, "fr", 2)) return release_notes_fr;
+    if (language && !strncmp(language, "es", 2)) return release_notes_es;
+    return release_notes_en;
 }
 
 int bs_update_mark_release_notes_seen(void)

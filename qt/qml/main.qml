@@ -91,8 +91,10 @@ Window {
             anchors.fill: parent
 
             Repeater {
-                model: [Tr.t("Übersicht", "Overview"), Tr.t("Serie", "Streak"),
-                        Tr.t("Kalender", "Calendar"), Tr.t("Jahr", "Year")]
+                model: [Tr.t("Übersicht", "Overview", "Aperçu", "Resumen"),
+                        Tr.t("Serie", "Streak", "Série", "Racha"),
+                        Tr.t("Kalender", "Calendar", "Calendrier", "Calendario"),
+                        Tr.t("Jahr", "Year", "Année", "Año")]
 
                 Item {
                     required property string modelData
@@ -202,13 +204,14 @@ Window {
 
         property var sessions: []
         readonly property var columns: [
-            { text: Tr.t("Start", "Start"), width: 0.13 },
-            { text: Tr.t("Ende", "End"), width: 0.13 },
-            { text: Tr.t("Dauer", "Duration"), width: 0.17 },
-            { text: Tr.t("Seiten", "Pages"), width: 0.20 },
-            { text: Tr.t("Buch", "Book"), width: 0.37 }
+            { text: Tr.t("Start", "Start", "Début", "Inicio"), width: 0.13 },
+            { text: Tr.t("Ende", "End", "Fin", "Fin"), width: 0.13 },
+            { text: Tr.t("Dauer", "Duration", "Durée", "Duración"), width: 0.17 },
+            { text: Tr.t("Seiten", "Pages", "Pages", "Páginas"), width: 0.20 },
+            { text: Tr.t("Buch", "Book", "Livre", "Libro"), width: 0.37 }
         ]
-        title: Tr.t("Sessions heute", "Today's sessions")
+        title: Tr.t("Sessions heute", "Today's sessions",
+                    "Sessions aujourd'hui", "Sesiones de hoy")
 
         function fmtDuration(value) {
             var secs = Math.max(0, Number(value) || 0)
@@ -256,7 +259,9 @@ Window {
             styledFont: FontStyles.Body
             color: GlobalValues.defaultDisabledTextColor
             text: Tr.t("Heute wurden keine Sessions gespeichert.",
-                       "No sessions were stored today.")
+                       "No sessions were stored today.",
+                       "Aucune session enregistrée aujourd'hui.",
+                       "No se guardaron sesiones hoy.")
         }
 
         Repeater {
@@ -311,7 +316,8 @@ Window {
         id: releaseNotesDialog
 
         property string message: ""
-        title: Tr.t("Neu in Better Stats %1", "What's new in Better Stats %1")
+        title: Tr.t("Neu in Better Stats %1", "What's new in Better Stats %1",
+                    "Nouveautés Better Stats %1", "Novedades Better Stats %1")
                  .arg(stats.currentVersion)
 
         onDismissed: {
@@ -337,7 +343,7 @@ Window {
                 anchors.centerIn: parent
                 styledFont: FontStyles.BodyLBold
                 color: GlobalValues.defaultBackgroundColor
-                text: Tr.t("Verstanden", "Got it")
+                text: Tr.t("Verstanden", "Got it", "Compris", "Entendido")
             }
 
             MouseArea {
@@ -350,7 +356,8 @@ Window {
     PanelDialog {
         id: updateDialog
 
-        title: Tr.t("Update verfügbar", "Update available")
+        title: Tr.t("Update verfügbar", "Update available",
+                    "Mise à jour disponible", "Actualización disponible")
 
         StyledText {
             width: parent.width
@@ -358,7 +365,9 @@ Window {
             color: GlobalValues.defaultTextColor
             wrapMode: Text.Wrap
             text: Tr.t("Version %1 ist verfügbar.",
-                       "Version %1 is available.").arg(stats.latestVersion)
+                       "Version %1 is available.",
+                       "La version %1 est disponible.",
+                       "La versión %1 está disponible.").arg(stats.latestVersion)
         }
 
         Row {
@@ -374,7 +383,8 @@ Window {
                     anchors.centerIn: parent
                     styledFont: FontStyles.BodyLBold
                     color: GlobalValues.defaultBackgroundColor
-                    text: Tr.t("Jetzt installieren", "Install now")
+                    text: Tr.t("Jetzt installieren", "Install now",
+                              "Installer maintenant", "Instalar ahora")
                 }
 
                 MouseArea {
@@ -399,7 +409,7 @@ Window {
                     anchors.centerIn: parent
                     styledFont: FontStyles.BodyLBold
                     color: GlobalValues.defaultTextColor
-                    text: Tr.t("Später", "Later")
+                    text: Tr.t("Später", "Later", "Plus tard", "Más tarde")
                 }
 
                 MouseArea {
@@ -414,7 +424,8 @@ Window {
         id: restartDialog
         z: 11
 
-        title: Tr.t("Neustart erforderlich", "Restart required")
+        title: Tr.t("Neustart erforderlich", "Restart required",
+                    "Redémarrage nécessaire", "Reinicio necesario")
 
         Row {
             width: parent.width
@@ -443,7 +454,9 @@ Window {
                 wrapMode: Text.Wrap
                 text: Tr.t(
                     "Autostart ist ausgeschaltet. Starte den Reader neu, damit Bücher direkt im Stock-Reader geöffnet werden und der G-Sensor wieder funktioniert.",
-                    "Autostart is off. Restart the reader so books open directly in the stock reader and G-sensor rotation works again.")
+                    "Autostart is off. Restart the reader so books open directly in the stock reader and G-sensor rotation works again.",
+                    "Le démarrage auto est désactivé. Redémarre le lecteur pour que les livres s'ouvrent dans le lecteur d'origine et que le capteur G fonctionne à nouveau.",
+                    "El inicio automático está desactivado. Reinicia el lector para que los libros se abran en el lector de serie y el sensor G vuelva a funcionar.")
             }
         }
 
@@ -460,7 +473,8 @@ Window {
                     anchors.centerIn: parent
                     styledFont: FontStyles.BodyLBold
                     color: GlobalValues.defaultBackgroundColor
-                    text: Tr.t("Jetzt neu starten", "Restart now")
+                    text: Tr.t("Jetzt neu starten", "Restart now",
+                              "Redémarrer", "Reiniciar")
                 }
 
                 MouseArea {
@@ -480,7 +494,7 @@ Window {
                     anchors.centerIn: parent
                     styledFont: FontStyles.BodyLBold
                     color: GlobalValues.defaultTextColor
-                    text: Tr.t("Später", "Later")
+                    text: Tr.t("Später", "Later", "Plus tard", "Más tarde")
                 }
 
                 MouseArea {
@@ -494,7 +508,7 @@ Window {
     PanelDialog {
         id: settingsDialog
 
-        title: Tr.t("Einstellungen", "Settings")
+        title: Tr.t("Einstellungen", "Settings", "Paramètres", "Ajustes")
         property var status: ({ enabled: false, available: false, message: "" })
 
         function refresh() {
@@ -503,49 +517,68 @@ Window {
 
         function updateStatusText() {
             if (stats.updateState === "checking")
-                return Tr.t("Suche nach Updates …", "Checking for updates …")
+                return Tr.t("Suche nach Updates …", "Checking for updates …",
+                            "Recherche de mises à jour …", "Buscando actualizaciones …")
             if (stats.updateState === "downloading")
                 return Tr.t("Update wird geladen und geprüft …",
-                            "Downloading and verifying update …")
+                            "Downloading and verifying update …",
+                            "Téléchargement et vérification …",
+                            "Descargando y verificando …")
             if (stats.updateState === "restarting")
                 return Tr.t("Update installiert. Neustart …",
-                            "Update installed. Restarting …")
+                            "Update installed. Restarting …",
+                            "Mise à jour installée. Redémarrage …",
+                            "Actualización instalada. Reiniciando …")
             if (stats.updateState === "available")
-                return Tr.t("Update verfügbar: ", "Update available: ")
+                return Tr.t("Update verfügbar: ", "Update available: ",
+                            "Mise à jour disponible : ", "Actualización disponible: ")
                        + stats.latestVersion
             if (stats.updateState === "current")
-                return Tr.t("Better Stats ist aktuell.", "Better Stats is up to date.")
+                return Tr.t("Better Stats ist aktuell.", "Better Stats is up to date.",
+                            "Better Stats est à jour.", "Better Stats está actualizado.")
             if (stats.updateState !== "error")
-                return Tr.t("Noch nicht geprüft.", "Not checked yet.")
+                return Tr.t("Noch nicht geprüft.", "Not checked yet.",
+                            "Pas encore vérifié.", "No comprobado aún.")
             if (stats.updateError === -1)
-                return Tr.t("Keine WLAN-Verbindung.", "No Wi-Fi connection.")
+                return Tr.t("Keine WLAN-Verbindung.", "No Wi-Fi connection.",
+                            "Pas de connexion Wi-Fi.", "Sin conexión Wi-Fi.")
             if (stats.updateError === -2)
-                return Tr.t("Download fehlgeschlagen.", "Download failed.")
+                return Tr.t("Download fehlgeschlagen.", "Download failed.",
+                            "Échec du téléchargement.", "Descarga fallida.")
             if (stats.updateError === -3)
-                return Tr.t("Release-Antwort ungültig.", "Invalid release response.")
+                return Tr.t("Release-Antwort ungültig.", "Invalid release response.",
+                            "Réponse de version invalide.", "Respuesta de versión no válida.")
             if (stats.updateError === -4)
                 return Tr.t("Kein passendes Update-Paket gefunden.",
-                            "No matching update package found.")
+                            "No matching update package found.",
+                            "Aucun paquet de mise à jour correspondant trouvé.",
+                            "No se encontró un paquete de actualización compatible.")
             if (stats.updateError === -5)
-                return Tr.t("Update-Paket ist beschädigt.", "Update package is damaged.")
+                return Tr.t("Update-Paket ist beschädigt.", "Update package is damaged.",
+                            "Le paquet de mise à jour est endommagé.",
+                            "El paquete de actualización está dañado.")
             if (stats.updateError === -7)
                 return Tr.t("Diese Firmware unterstützt WLAN-Updates nicht.",
-                            "This firmware does not support Wi-Fi updates.")
+                            "This firmware does not support Wi-Fi updates.",
+                            "Ce firmware ne prend pas en charge les mises à jour Wi-Fi.",
+                            "Este firmware no admite actualizaciones por Wi-Fi.")
             return Tr.t("Update konnte nicht installiert werden.",
-                        "The update could not be installed.")
+                        "The update could not be installed.",
+                        "La mise à jour n'a pas pu être installée.",
+                        "La actualización no se pudo instalar.")
         }
 
         StyledText {
             width: parent.width
             styledFont: FontStyles.BodyLBold
             color: GlobalValues.defaultTextColor
-            text: Tr.t("Tracking", "Tracking")
+            text: Tr.t("Tracking", "Tracking", "Suivi", "Seguimiento")
         }
 
         SettingsBitmapTextSwitcher {
             width: parent.width
             height: GlobalValues.defaultListItemHeight
-            title: Tr.t("Autostart", "Autostart")
+            title: Tr.t("Autostart", "Autostart", "Démarrage auto", "Inicio automático")
             switch_value: settingsDialog.status.enabled === true
             enabled: settingsDialog.status.available === true
                      || settingsDialog.status.enabled === true
@@ -569,14 +602,22 @@ Window {
                   || settingsDialog.status.message === "Another reader is registered"
                 ? settingsDialog.status.enabled === true
                   ? Tr.t("Der andere Reader bleibt Standard. Der Better-Stats-Handler ist zusätzlich vor dem Stock-Reader installiert.",
-                         "The other reader remains the default. The Better Stats handler is also installed before the stock reader.")
+                         "The other reader remains the default. The Better Stats handler is also installed before the stock reader.",
+                         "L'autre lecteur reste par défaut. Le handler Better Stats est installé en plus avant le lecteur d'origine.",
+                         "El otro lector sigue siendo el predeterminado. El handler de Better Stats está instalado antes del lector de serie.")
                   : Tr.t("Der andere Reader bleibt Standard. Beim Aktivieren bleibt seine Zuordnung unverändert.",
-                         "The other reader remains the default. Enabling leaves its association unchanged.")
+                         "The other reader remains the default. Enabling leaves its association unchanged.",
+                         "L'autre lecteur reste par défaut. L'activation ne modifie pas son association.",
+                         "El otro lector sigue siendo el predeterminado. Activar no cambia su asociación.")
                 : settingsDialog.status.enabled === true
                   ? Tr.t("Tracking startet automatisch bei EPUB, FB2 und CBZ. Auf manchen Geräten kann dadurch die G-Sensor-Drehung im Reader ausfallen.",
-                         "Tracking starts automatically for EPUB, FB2, and CBZ. On some devices this can disable G-sensor rotation in the reader.")
+                         "Tracking starts automatically for EPUB, FB2, and CBZ. On some devices this can disable G-sensor rotation in the reader.",
+                         "Le suivi démarre automatiquement pour les EPUB, FB2 et CBZ. Sur certains appareils, la rotation du capteur G peut être désactivée.",
+                         "El seguimiento se inicia automáticamente para EPUB, FB2 y CBZ. En algunos dispositivos esto puede desactivar la rotación del sensor G.")
                   : Tr.t("Öffne Better Stats einmal nach jedem Neustart, um Tracking zu starten. Bücher öffnen direkt im Stock-Reader und die G-Sensor-Drehung bleibt verfügbar.",
-                         "Open Better Stats once after each restart to start tracking. Books open directly in the stock reader and G-sensor rotation remains available.")
+                         "Open Better Stats once after each restart to start tracking. Books open directly in the stock reader and G-sensor rotation remains available.",
+                         "Ouvre Better Stats une fois après chaque redémarrage pour lancer le suivi. Les livres s'ouvrent dans le lecteur d'origine et le capteur G reste disponible.",
+                         "Abre Better Stats una vez tras cada reinicio para iniciar el seguimiento. Los libros se abren en el lector de serie y el sensor G sigue disponible.")
         }
 
         StyledText {
@@ -588,11 +629,16 @@ Window {
             wrapMode: Text.Wrap
             text: settingsDialog.status.message === "KOReader association detected"
                 ? Tr.t("KOReader ist eingetragen. Beim Aktivieren bleibt KOReader Standard.",
-                       "KOReader is registered. Enabling keeps it as the default.")
+                       "KOReader is registered. Enabling keeps it as the default.",
+                       "KOReader est enregistré. L'activation le garde par défaut.",
+                       "KOReader está registrado. Activar lo mantiene como predeterminado.")
                 : settingsDialog.status.message === "Another reader is registered"
                 ? Tr.t("Ein anderer Reader ist eingetragen. Beim Aktivieren bleibt er Standard.",
-                       "Another reader is registered. Enabling keeps it as the default.")
-                : Tr.t("Grund: ", "Reason: ") + settingsDialog.status.message
+                       "Another reader is registered. Enabling keeps it as the default.",
+                       "Un autre lecteur est enregistré. L'activation le garde par défaut.",
+                       "Otro lector está registrado. Activar lo mantiene como predeterminado.")
+                : Tr.t("Grund: ", "Reason: ", "Raison : ", "Razón: ")
+                  + settingsDialog.status.message
         }
 
         Rectangle {
@@ -605,14 +651,16 @@ Window {
             width: parent.width
             styledFont: FontStyles.BodyLBold
             color: GlobalValues.defaultTextColor
-            text: Tr.t("Updates", "Updates")
+            text: Tr.t("Updates", "Updates", "Mises à jour", "Actualizaciones")
         }
 
         SettingsBitmapTextSwitcher {
             width: parent.width
             height: GlobalValues.defaultListItemHeight
             title: Tr.t("Automatisch nach Updates suchen",
-                        "Check for updates automatically")
+                        "Check for updates automatically",
+                        "Vérifier les mises à jour automatiquement",
+                        "Buscar actualizaciones automáticamente")
             switch_value: stats.automaticUpdates
             onAction: stats.setAutomaticUpdates(!stats.automaticUpdates)
         }
@@ -624,14 +672,16 @@ Window {
             wrapMode: Text.Wrap
             text: Tr.t(
                 "Prüft beim Start über bekanntes WLAN; Installation nach Bestätigung.",
-                "Checks on launch over known Wi-Fi; installs after confirmation.")
+                "Checks on launch over known Wi-Fi; installs after confirmation.",
+                "Vérifie au lancement via le Wi-Fi connu ; installe après confirmation.",
+                "Comprueba al iniciar por Wi-Fi conocida; instala tras confirmación.")
         }
 
         StyledText {
             width: parent.width
             styledFont: FontStyles.BodyS
             color: GlobalValues.defaultDisabledTextColor
-            text: Tr.t("Installiert: ", "Installed: ")
+            text: Tr.t("Installiert: ", "Installed: ", "Installé : ", "Instalado: ")
                   + (stats.currentVersion === "" ? "–" : stats.currentVersion)
         }
 
@@ -661,7 +711,8 @@ Window {
                 styledFont: FontStyles.BodyLBold
                 color: parent.busy ? GlobalValues.defaultDisabledTextColor
                                    : GlobalValues.defaultTextColor
-                text: Tr.t("Jetzt prüfen", "Check now")
+                text: Tr.t("Jetzt prüfen", "Check now",
+                          "Vérifier", "Comprobar")
             }
 
             MouseArea {
@@ -681,7 +732,8 @@ Window {
                 anchors.centerIn: parent
                 styledFont: FontStyles.BodyLBold
                 color: GlobalValues.defaultBackgroundColor
-                text: Tr.t("Update installieren", "Install update")
+                text: Tr.t("Update installieren", "Install update",
+                          "Installer la mise à jour", "Instalar actualización")
             }
 
             MouseArea {

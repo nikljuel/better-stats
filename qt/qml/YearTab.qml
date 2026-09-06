@@ -19,7 +19,8 @@ Item {
             return;
         monthDialog.title = monthNamesFull[idx] + " " + yearNum + "  ·  "
                             + books.length + (books.length === 1
-                                ? Tr.t(" Buch", " book") : Tr.t(" Bücher", " books"));
+                                ? Tr.t(" Buch", " book", " livre", " libro")
+                                : Tr.t(" Bücher", " books", " livres", " libros"));
         monthDialog.books = books;
         monthDialog.visible = true;
     }
@@ -83,7 +84,8 @@ Item {
                     anchors.verticalCenter: parent.verticalCenter
                     styledFont: FontStyles.Body
                     color: GlobalValues.defaultDisabledTextColor
-                    text: Tr.t("Bücher beendet in ", "Books finished in ") + tab.yearNum
+                    text: Tr.t("Bücher beendet in ", "Books finished in ",
+                              "Livres terminés en ", "Libros terminados en ") + tab.yearNum
                 }
             }
 

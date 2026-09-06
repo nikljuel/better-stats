@@ -17,16 +17,23 @@ Item {
     function insightText() {
         if (!(yr.bestStreak > 0) || yr.bestStreakStart === "")
             return Tr.t("Noch keine Lese-Serie — heute ist ein guter Tag, um eine zu starten.",
-                        "No reading streak yet — today is a good day to start one.");
+                        "No reading streak yet — today is a good day to start one.",
+                        "Pas encore de série de lecture — aujourd'hui est un bon jour pour en commencer une.",
+                        "Aún no tienes racha de lectura — hoy es un buen día para empezar una.");
         var d = new Date(yr.bestStreakStart);
-        var when = Tr.de
-            ? (d.getDate() + ". " + Tr.monthsFull[d.getMonth()])
-            : (Tr.monthsFull[d.getMonth()] + " " + d.getDate());
-        return Tr.de
-            ? ("Deine längste Serie begann am " + when + " und hielt "
-               + yr.bestStreak + (yr.bestStreak === 1 ? " Tag." : " Tage."))
-            : ("Your longest streak began on " + when + " and lasted "
-               + yr.bestStreak + (yr.bestStreak === 1 ? " day." : " days."));
+        var day = d.getDate();
+        var mon = Tr.monthsFull[d.getMonth()];
+        var n = yr.bestStreak;
+        switch (Tr.lang) {
+        case 0: return "Deine längste Serie begann am " + day + ". " + mon
+                       + " und hielt " + n + (n === 1 ? " Tag." : " Tage.");
+        case 2: return "Ta plus longue série a commencé le " + day + " " + mon
+                       + " et a duré " + n + (n === 1 ? " jour." : " jours.");
+        case 3: return "Tu racha más larga empezó el " + day + " de " + mon
+                       + " y duró " + n + (n === 1 ? " día." : " días.");
+        default: return "Your longest streak began on " + mon + " " + day
+                        + " and lasted " + n + (n === 1 ? " day." : " days.");
+        }
     }
 
     Component.onCompleted: refresh()
@@ -50,8 +57,8 @@ Item {
 
             Repeater {
                 model: [
-                    { v: (tab.yr.currentStreak || 0), l: Tr.t("Tage aktuelle Serie", "Days current streak") },
-                    { v: (tab.yr.bestStreak || 0), l: Tr.t("Tage beste Serie ", "Days best streak ") + tab.yearNum }
+                    { v: (tab.yr.currentStreak || 0), l: Tr.t("Tage aktuelle Serie", "Days current streak", "Jours série en cours", "Días racha actual") },
+                    { v: (tab.yr.bestStreak || 0), l: Tr.t("Tage beste Serie ", "Days best streak ", "Jours meilleure série ", "Días mejor racha ") + tab.yearNum }
                 ]
 
                 Column {
@@ -87,7 +94,7 @@ Item {
         StyledText {
             styledFont: FontStyles.Caption1
             color: GlobalValues.defaultDisabledTextColor
-            text: (tab.yr.daysRead || 0) + Tr.t(" LESETAGE IN ", " READING DAYS IN ") + tab.yearNum
+            text: (tab.yr.daysRead || 0) + Tr.t(" LESETAGE IN ", " READING DAYS IN ", " JOURS DE LECTURE EN ", " DÍAS DE LECTURA EN ") + tab.yearNum
         }
     }
 
@@ -103,9 +110,9 @@ Item {
 
         Repeater {
             model: [
-                { c: "#d8d8d8", dot: false, l: Tr.t("nicht gelesen", "not read") },
-                { c: GlobalValues.defaultTextColor, dot: false, l: Tr.t("gelesen", "read") },
-                { c: GlobalValues.defaultTextColor, dot: true, l: Tr.t("Buch beendet", "book finished") }
+                { c: "#d8d8d8", dot: false, l: Tr.t("nicht gelesen", "not read", "non lu", "no leído") },
+                { c: GlobalValues.defaultTextColor, dot: false, l: Tr.t("gelesen", "read", "lu", "leído") },
+                { c: GlobalValues.defaultTextColor, dot: true, l: Tr.t("Buch beendet", "book finished", "livre terminé", "libro terminado") }
             ]
 
             Row {

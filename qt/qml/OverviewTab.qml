@@ -128,7 +128,7 @@ Item {
                         StyledText {
                             styledFont: FontStyles.Body
                             color: GlobalValues.defaultTextColor
-                            text: Tr.t("Fortschritt: ", "Progress: ") + (tab.book.percent || 0) + " %"
+                            text: Tr.t("Fortschritt: ", "Progress: ", "Progression : ", "Progreso: ") + (tab.book.percent || 0) + " %"
                         }
 
                         ProgressBar {
@@ -145,14 +145,14 @@ Item {
                         StyledText {
                             styledFont: FontStyles.BodyS
                             color: GlobalValues.defaultDisabledTextColor
-                            text: Tr.t("Gelesen: ", "Read: ") + Tr.fmtHM(tab.book.bookSecs)
+                            text: Tr.t("Gelesen: ", "Read: ", "Lu : ", "Leído: ") + Tr.fmtHM(tab.book.bookSecs)
                         }
 
                         StyledText {
                             visible: (tab.book.leftSecs || 0) > 0
                             styledFont: FontStyles.BodyS
                             color: GlobalValues.defaultDisabledTextColor
-                            text: Tr.t("Noch ca. ", "About ") + Tr.fmtHM(tab.book.leftSecs)
+                            text: Tr.t("Noch ca. ", "About ", "Env. ", "Aprox. ") + Tr.fmtHM(tab.book.leftSecs)
                         }
                     }
                 }
@@ -187,7 +187,8 @@ Item {
                 visible: tab.books.length === 0
                 styledFont: FontStyles.Body
                 color: GlobalValues.defaultDisabledTextColor
-                text: Tr.t("Noch kein Buch geöffnet", "No book opened yet")
+                text: Tr.t("Noch kein Buch geöffnet", "No book opened yet",
+                          "Aucun livre ouvert", "Ningún libro abierto")
             }
 
             Rectangle {
@@ -202,9 +203,9 @@ Item {
 
                 Repeater {
                     model: [
-                        { v: Tr.fmtHM(tab.ov.todaySecs), l: Tr.t("Gelesen heute", "Read today") },
-                        { v: Math.round(tab.ov.avgSessionMin || 0) + "", l: Tr.t("Ø Min/Session", "Avg min/session") },
-                        { v: ((tab.ov.pagesPerMin || 0) * 60).toFixed(0), l: Tr.t("Seiten pro Stunde", "Pages per hour") }
+                        { v: Tr.fmtHM(tab.ov.todaySecs), l: Tr.t("Gelesen heute", "Read today", "Lu aujourd'hui", "Leído hoy") },
+                        { v: Math.round(tab.ov.avgSessionMin || 0) + "", l: Tr.t("Ø Min/Session", "Avg min/session", "Moy min/session", "Prom min/sesión") },
+                        { v: ((tab.ov.pagesPerMin || 0) * 60).toFixed(0), l: Tr.t("Seiten pro Stunde", "Pages per hour", "Pages par heure", "Páginas por hora") }
                     ]
 
                     Column {
@@ -238,7 +239,7 @@ Item {
             StyledText {
                 styledFont: FontStyles.Caption1
                 color: GlobalValues.defaultDisabledTextColor
-                text: Tr.t("ALLE BÜCHER", "ALL BOOKS")
+                text: Tr.t("ALLE BÜCHER", "ALL BOOKS", "TOUS LES LIVRES", "TODOS LOS LIBROS")
             }
 
             // Donut + figures in one row, caption below each
@@ -297,7 +298,8 @@ Item {
                         width: parent.width - Global.dp(8)
                         styledFont: FontStyles.BodyS
                         color: GlobalValues.defaultDisabledTextColor
-                        text: Tr.t("deiner Bücher beendet", "of your books finished")
+                        text: Tr.t("deiner Bücher beendet", "of your books finished",
+                                  "de tes livres terminés", "de tus libros terminados")
                         wrapMode: Text.Wrap
                     }
                 }
@@ -305,8 +307,8 @@ Item {
                 // Columns 2+3: number on top (at donut height), caption below
                 Repeater {
                     model: [
-                        { v: (tab.ov.booksFinished || 0) + "", l: Tr.t("Bücher beendet", "Books finished") },
-                        { v: (tab.ov.totalHours || 0).toFixed(1), l: Tr.t("Lesezeit gesamt", "Total reading time") }
+                        { v: (tab.ov.booksFinished || 0) + "", l: Tr.t("Bücher beendet", "Books finished", "Livres terminés", "Libros terminados") },
+                        { v: (tab.ov.totalHours || 0).toFixed(1), l: Tr.t("Lesezeit gesamt", "Total reading time", "Temps de lecture total", "Tiempo total de lectura") }
                     ]
 
                     Column {

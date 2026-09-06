@@ -25,6 +25,7 @@
 extern _Bool IvGetScreenModeInversion(void);
 extern void IvSetAppCapability(int caps);
 
+enum { LANG_DE, LANG_EN, LANG_FR, LANG_ES };
 enum { TAB_OVERVIEW, TAB_STREAK, TAB_CALENDAR, TAB_YEAR, TAB_COUNT };
 enum {
     DIALOG_NONE,
@@ -63,7 +64,7 @@ typedef struct {
     int real_month;
     int calendar_year;
     int calendar_month;
-    int german;
+    int lang;
     int loaded_tab;
     int dialog;
     int dialog_index;
@@ -133,20 +134,34 @@ typedef struct {
 static app_state app;
 static cover_cache cached_cover;
 
-static const char *months_de[] =
-    {"Jan", "Feb", "Mär", "Apr", "Mai", "Jun", "Jul", "Aug", "Sep", "Okt", "Nov", "Dez"};
-static const char *months_en[] =
-    {"Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"};
-static const char *months_full_de[] =
+static const char *months[4][12] = {
+    {"Jan", "Feb", "Mär", "Apr", "Mai", "Jun", "Jul", "Aug", "Sep", "Okt", "Nov", "Dez"},
+    {"Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"},
+    {"janv.", "fév.", "mars", "avr.", "mai", "juin", "juil.", "août", "sept.", "oct.", "nov.", "déc."},
+    {"ene.", "feb.", "mar.", "abr.", "may.", "jun.", "jul.", "ago.", "sept.", "oct.", "nov.", "dic."},
+};
+static const char *months_full[4][12] = {
     {"Januar", "Februar", "März", "April", "Mai", "Juni", "Juli", "August",
-     "September", "Oktober", "November", "Dezember"};
-static const char *months_full_en[] =
+     "September", "Oktober", "November", "Dezember"},
     {"January", "February", "March", "April", "May", "June", "July", "August",
-     "September", "October", "November", "December"};
-static const char *weekdays_de[] = {"Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"};
-static const char *weekdays_en[] = {"Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"};
-static const char *tabs_de[] = {"Übersicht", "Serie", "Kalender", "Jahr"};
-static const char *tabs_en[] = {"Overview", "Streak", "Calendar", "Year"};
+     "September", "October", "November", "December"},
+    {"janvier", "février", "mars", "avril", "mai", "juin", "juillet", "août",
+     "septembre", "octobre", "novembre", "décembre"},
+    {"enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto",
+     "septiembre", "octubre", "noviembre", "diciembre"},
+};
+static const char *weekdays[4][7] = {
+    {"Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"},
+    {"Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"},
+    {"lun.", "mar.", "mer.", "jeu.", "ven.", "sam.", "dim."},
+    {"lun.", "mar.", "mié.", "jue.", "vie.", "sáb.", "dom."},
+};
+static const char *tabs[4][4] = {
+    {"Übersicht", "Serie", "Kalender", "Jahr"},
+    {"Overview", "Streak", "Calendar", "Year"},
+    {"Aperçu", "Série", "Calendrier", "Année"},
+    {"Resumen", "Racha", "Calendario", "Año"},
+};
 
 static int dp(int logical)
 {
@@ -163,19 +178,20 @@ static int imax(int a, int b)
     return a > b ? a : b;
 }
 
-static const char *tr(const char *de, const char *en)
+static const char *tr(const char *de, const char *en,
+                      const char *fr, const char *es)
 {
-    return app.german ? de : en;
+    return ((const char *[]){de, en, fr, es})[app.lang];
 }
 
 static const char *month_name(int month)
 {
-    return app.german ? months_de[month - 1] : months_en[month - 1];
+    return months[app.lang][month - 1];
 }
 
 static const char *month_full_name(int month)
 {
-    return app.german ? months_full_de[month - 1] : months_full_en[month - 1];
+    return months_full[app.lang][month - 1];
 }
 
 static void format_time(int64_t seconds, char out[32])
@@ -185,7 +201,8 @@ static void format_time(int64_t seconds, char out[32])
     if (hours)
         snprintf(out, 32, "%dh %02dm", hours, minutes);
     else
-        snprintf(out, 32, "%d %s", minutes, tr("Min", "min"));
+        snprintf(out, 32, "%d %s", minutes,
+                 tr("Min", "min", "min", "min"));
 }
 
 static void set_font(ifont *font, int color)
@@ -414,7 +431,7 @@ static void draw_header(void)
         set_font(i == app.tab ? app.heading : app.body,
                  i == app.tab ? BLACK : 0x888888);
         text(x, tab_top, width, app.tab_height,
-             app.german ? tabs_de[i] : tabs_en[i],
+             tabs[app.lang][i],
              ALIGN_CENTER | VALIGN_MIDDLE | DOTS);
         if (i == app.tab)
             FillArea(x + width * 9 / 40,
@@ -472,7 +489,7 @@ static void draw_overview(void)
 
         char value[64];
         snprintf(value, sizeof(value), "%s: %d %%",
-                 tr("Fortschritt", "Progress"), cur->percent);
+                 tr("Fortschritt", "Progress", "Progression", "Progreso"), cur->percent);
         set_font(app.body, BLACK);
         text(info_x, top + dp(86), info_w, dp(34), value,
              ALIGN_LEFT | VALIGN_MIDDLE);
@@ -488,20 +505,21 @@ static void draw_overview(void)
 
         char formatted[32];
         format_time(cur->book_seconds, formatted);
-        snprintf(value, sizeof(value), "%s: %s", tr("Gelesen", "Read"), formatted);
+        snprintf(value, sizeof(value), "%s: %s", tr("Gelesen", "Read", "Lu", "Leído"), formatted);
         set_font(app.small, 0x888888);
         text(info_x, bar_y + dp(18), info_w, dp(28), value,
              ALIGN_LEFT | VALIGN_MIDDLE | DOTS);
         if (cur->left_seconds > 0) {
             format_time(cur->left_seconds, formatted);
-            snprintf(value, sizeof(value), "%s %s", tr("Noch ca.", "About"), formatted);
+            snprintf(value, sizeof(value), "%s %s", tr("Noch ca.", "About", "Env.", "Aprox."), formatted);
             text(info_x, bar_y + dp(48), info_w, dp(28), value,
                  ALIGN_LEFT | VALIGN_MIDDLE | DOTS);
         }
     } else {
         set_font(app.body, 0x888888);
         text(margin, top, app.width - margin * 2, dp(60),
-             tr("Noch kein Buch geöffnet", "No book opened yet"),
+             tr("Noch kein Buch geöffnet", "No book opened yet",
+                "Aucun livre ouvert", "Ningún libro abierto"),
              ALIGN_LEFT | VALIGN_MIDDLE);
     }
 
@@ -535,19 +553,23 @@ static void draw_overview(void)
     char value[64];
     format_time(app.overall.today_secs, value);
     draw_metric_column(margin, metrics_top, column_w, value,
-                       tr("Gelesen heute", "Read today"));
+                       tr("Gelesen heute", "Read today",
+                          "Lu aujourd'hui", "Leído hoy"));
     snprintf(value, sizeof(value), "%.0f", app.overall.avg_session_min);
     draw_metric_column(margin + column_w, metrics_top, column_w, value,
-                       tr("\xc3\x98 Min/Session", "Avg min/session"));
+                       tr("\xc3\x98 Min/Session", "Avg min/session",
+                          "Moy min/session", "Prom min/sesión"));
     snprintf(value, sizeof(value), "%.0f", app.overall.pages_per_min * 60);
     draw_metric_column(margin + column_w * 2, metrics_top, column_w, value,
-                       tr("Seiten pro Stunde", "Pages per hour"));
+                       tr("Seiten pro Stunde", "Pages per hour",
+                          "Pages par heure", "Páginas por hora"));
 
     int second_separator = metrics_top + dp(96);
     separator(second_separator);
     set_font(app.small, 0x888888);
     text(margin, second_separator + dp(16), app.width - margin * 2, dp(30),
-         tr("ALLE BÜCHER", "ALL BOOKS"), ALIGN_LEFT | VALIGN_MIDDLE);
+         tr("ALLE BÜCHER", "ALL BOOKS", "TOUS LES LIVRES", "TODOS LOS LIBROS"),
+         ALIGN_LEFT | VALIGN_MIDDLE);
 
     int all_top = second_separator + dp(52);
     int donut_size = dp(110);
@@ -562,16 +584,19 @@ static void draw_overview(void)
          ALIGN_CENTER | VALIGN_MIDDLE);
     set_font(app.small, 0x888888);
     text(margin, all_top + donut_size + dp(8), column_w - dp(8), dp(48),
-         tr("deiner Bücher beendet", "of your books finished"),
+         tr("deiner Bücher beendet", "of your books finished",
+            "de tes livres terminés", "de tus libros terminados"),
          ALIGN_LEFT | VALIGN_TOP);
 
     int number_y = all_top + donut_size / 2 - dp(24);
     snprintf(value, sizeof(value), "%d", app.overall.books_finished);
     draw_metric_column(margin + column_w, number_y, column_w, value,
-                       tr("Bücher beendet", "Books finished"));
+                       tr("Bücher beendet", "Books finished",
+                          "Livres terminés", "Libros terminados"));
     snprintf(value, sizeof(value), "%.1f", app.overall.total_hours);
     draw_metric_column(margin + column_w * 2, number_y, column_w, value,
-                       tr("Lesezeit gesamt", "Total reading time"));
+                       tr("Lesezeit gesamt", "Total reading time",
+                          "Temps de lecture total", "Tiempo total de lectura"));
 }
 
 static void streak_insight(char out[256])
@@ -584,17 +609,33 @@ static void streak_insight(char out[256])
         || month < 1 || month > 12) {
         snprintf(out, 256, "%s",
                  tr("Noch keine Lese-Serie — heute ist ein guter Tag, um eine zu starten.",
-                    "No reading streak yet — today is a good day to start one."));
+                    "No reading streak yet — today is a good day to start one.",
+                    "Pas encore de série de lecture — aujourd'hui est un bon jour pour en commencer une.",
+                    "Aún no tienes racha de lectura — hoy es un buen día para empezar una."));
         return;
     }
-    if (app.german)
+    switch (app.lang) {
+    case LANG_DE:
         snprintf(out, 256, "Deine längste Serie begann am %d. %s und hielt %d %s.",
                  day, month_full_name(month), app.year.best_streak,
                  app.year.best_streak == 1 ? "Tag" : "Tage");
-    else
+        break;
+    case LANG_FR:
+        snprintf(out, 256, "Ta plus longue série a commencé le %d %s et a duré %d %s.",
+                 day, month_full_name(month), app.year.best_streak,
+                 app.year.best_streak == 1 ? "jour" : "jours");
+        break;
+    case LANG_ES:
+        snprintf(out, 256, "Tu racha más larga empezó el %d de %s y duró %d %s.",
+                 day, month_full_name(month), app.year.best_streak,
+                 app.year.best_streak == 1 ? "día" : "días");
+        break;
+    default:
         snprintf(out, 256, "Your longest streak began on %s %d and lasted %d %s.",
                  month_full_name(month), day, app.year.best_streak,
                  app.year.best_streak == 1 ? "day" : "days");
+        break;
+    }
 }
 
 static int month_first_day(int month, int leap)
@@ -618,9 +659,13 @@ static void draw_streak(void)
     text(margin + half, top, half, dp(54), value, ALIGN_LEFT | VALIGN_MIDDLE);
     set_font(app.small, 0x888888);
     text(margin, top + dp(56), half - dp(8), dp(38),
-         tr("Tage aktuelle Serie", "Days current streak"), ALIGN_LEFT | VALIGN_TOP);
+         tr("Tage aktuelle Serie", "Days current streak",
+            "Jours série en cours", "Días racha actual"),
+         ALIGN_LEFT | VALIGN_TOP);
     snprintf(value, sizeof(value), "%s %d",
-             tr("Tage beste Serie", "Days best streak"), app.current_year);
+             tr("Tage beste Serie", "Days best streak",
+                "Jours meilleure série", "Días mejor racha"),
+             app.current_year);
     text(margin + half, top + dp(56), half - dp(8), dp(38), value,
          ALIGN_LEFT | VALIGN_TOP);
 
@@ -629,7 +674,9 @@ static void draw_streak(void)
     text(margin, top + dp(102), app.width - margin * 2, dp(56), value,
          ALIGN_LEFT | VALIGN_TOP);
     snprintf(value, sizeof(value), "%d %s %d", app.year.days_read,
-             tr("LESETAGE IN", "READING DAYS IN"), app.current_year);
+             tr("LESETAGE IN", "READING DAYS IN",
+                "JOURS DE LECTURE EN", "DÍAS DE LECTURA EN"),
+             app.current_year);
     set_font(app.small, 0x888888);
     text(margin, top + dp(166), app.width - margin * 2, dp(30), value,
          ALIGN_LEFT | VALIGN_MIDDLE);
@@ -678,17 +725,20 @@ static void draw_streak(void)
                     dp(3), 0xd8d8d8);
     set_font(app.small, 0x888888);
     text(legend_x + legend_cell + dp(6), legend_y - dp(5), dp(84), dp(28),
-         tr("nicht gelesen", "not read"), ALIGN_LEFT | VALIGN_MIDDLE | DOTS);
+         tr("nicht gelesen", "not read", "non lu", "no leído"),
+         ALIGN_LEFT | VALIGN_MIDDLE | DOTS);
     legend_x += dp(112);
     fill_round_rect(legend_x, legend_y, legend_cell, legend_cell, dp(3), BLACK);
     text(legend_x + legend_cell + dp(6), legend_y - dp(5), dp(62), dp(28),
-         tr("gelesen", "read"), ALIGN_LEFT | VALIGN_MIDDLE | DOTS);
+         tr("gelesen", "read", "lu", "leído"),
+         ALIGN_LEFT | VALIGN_MIDDLE | DOTS);
     legend_x += dp(88);
     fill_round_rect(legend_x, legend_y, legend_cell, legend_cell, dp(3), BLACK);
     fill_circle(legend_x + legend_cell / 2, legend_y + legend_cell / 2,
                 dp(3), WHITE);
     text(legend_x + legend_cell + dp(6), legend_y - dp(5), dp(112), dp(28),
-         tr("Buch beendet", "book finished"),
+         tr("Buch beendet", "book finished",
+            "livre terminé", "libro terminado"),
          ALIGN_LEFT | VALIGN_MIDDLE | DOTS);
 }
 
@@ -732,7 +782,7 @@ static void draw_calendar(void)
     set_font(app.small, 0x888888);
     for (i = 0; i < 7; ++i)
         text(margin + i * cell_w, top + month_h, cell_w, weekdays_h,
-             app.german ? weekdays_de[i] : weekdays_en[i],
+             weekdays[app.lang][i],
              ALIGN_CENTER | VALIGN_MIDDLE);
 
     int grid_top = calendar_grid_top();
@@ -793,7 +843,9 @@ static void draw_year(void)
     set_font(app.large, BLACK);
     int count_w = StringWidth(count);
     snprintf(value, sizeof(value), "%s %d",
-             tr("Bücher beendet in", "Books finished in"), app.current_year);
+             tr("Bücher beendet in", "Books finished in",
+                "Livres terminés en", "Libros terminados en"),
+             app.current_year);
     set_font(app.body, 0x888888);
     int title_w = StringWidth(value);
     int gap = dp(12);
@@ -925,8 +977,9 @@ static void draw_detail_dialog(void)
     } else {
         snprintf(title, sizeof(title), "%s %d  ·  %u %s",
                  month_full_name(app.dialog_index + 1), app.current_year,
-                 (unsigned)count, count == 1 ? tr("Buch", "book")
-                                             : tr("Bücher", "books"));
+                 (unsigned)count, count == 1
+                     ? tr("Buch", "book", "livre", "libro")
+                     : tr("Bücher", "books", "livres", "libros"));
     }
     set_font(app.heading, BLACK);
     text(layout.x + dp(20), layout.y + dp(16),
@@ -1035,7 +1088,8 @@ static void draw_release_dialog(void)
 
     char title[128];
     snprintf(title, sizeof(title),
-             tr("Neu in Better Stats %s", "What's new in Better Stats %s"),
+             tr("Neu in Better Stats %s", "What's new in Better Stats %s",
+                "Nouveautés Better Stats %s", "Novedades Better Stats %s"),
              *app.update.current_version ? app.update.current_version : "");
     set_font(app.heading, BLACK);
     text(layout.x + dp(20), layout.y + dp(16),
@@ -1075,7 +1129,8 @@ static void draw_release_dialog(void)
              layout.button_w, layout.button_h, BLACK);
     set_font(app.heading, WHITE);
     text(layout.button_x, layout.button_y,
-         layout.button_w, layout.button_h, tr("Verstanden", "Got it"),
+         layout.button_w, layout.button_h,
+         tr("Verstanden", "Got it", "Compris", "Entendido"),
          ALIGN_CENTER | VALIGN_MIDDLE);
 }
 
@@ -1131,7 +1186,7 @@ static void draw_settings_dialog(void)
     set_font(app.heading, BLACK);
     text(inner_x, layout.y + dp(16),
          inner_w - layout.close_w, dp(40),
-         tr("Einstellungen", "Settings"),
+         tr("Einstellungen", "Settings", "Paramètres", "Ajustes"),
          ALIGN_LEFT | VALIGN_MIDDLE | DOTS);
     text(layout.close_x, layout.close_y,
          layout.close_w, layout.close_h, "X",
@@ -1139,11 +1194,12 @@ static void draw_settings_dialog(void)
 
     set_font(app.heading, BLACK);
     text(inner_x, layout.y + dp(66), inner_w, dp(28),
-         tr("Tracking", "Tracking"), ALIGN_LEFT | VALIGN_MIDDLE);
+         tr("Tracking", "Tracking", "Suivi", "Seguimiento"),
+         ALIGN_LEFT | VALIGN_MIDDLE);
     set_font(app.body, enabled ? BLACK : DGRAY);
     text(inner_x, layout.autostart_y,
          inner_w - toggle_w - dp(20), layout.row_h,
-         tr("Autostart", "Autostart"),
+         tr("Autostart", "Autostart", "Démarrage auto", "Inicio automático"),
          ALIGN_LEFT | VALIGN_MIDDLE | DOTS);
     draw_toggle(layout.x + layout.w - dp(20) - toggle_w,
                 layout.autostart_y + (layout.row_h - dp(28)) / 2,
@@ -1154,26 +1210,37 @@ static void draw_settings_dialog(void)
          mixed_reader
              ? app.autostart.enabled
                ? tr("Der andere Reader bleibt Standard. Der Better-Stats-Handler ist zusätzlich vor dem Stock-Reader installiert.",
-                    "The other reader remains the default. The Better Stats handler is also installed before the stock reader.")
+                    "The other reader remains the default. The Better Stats handler is also installed before the stock reader.",
+                    "L'autre lecteur reste par défaut. Le handler Better Stats est installé en plus avant le lecteur d'origine.",
+                    "El otro lector sigue siendo el predeterminado. El handler de Better Stats está instalado antes del lector de serie.")
                : tr("Der andere Reader bleibt Standard. Beim Aktivieren bleibt seine Zuordnung unverändert.",
-                    "The other reader remains the default. Enabling leaves its association unchanged.")
+                    "The other reader remains the default. Enabling leaves its association unchanged.",
+                    "L'autre lecteur reste par défaut. L'activation ne modifie pas son association.",
+                    "El otro lector sigue siendo el predeterminado. Activar no cambia su asociación.")
              : app.autostart.enabled
                ? tr("Tracking startet automatisch bei EPUB, FB2 und CBZ. Auf manchen Geräten kann dadurch die G-Sensor-Drehung ausfallen.",
-                    "Tracking starts automatically for EPUB, FB2, and CBZ. On some devices this can disable G-sensor rotation.")
+                    "Tracking starts automatically for EPUB, FB2, and CBZ. On some devices this can disable G-sensor rotation.",
+                    "Le suivi démarre automatiquement pour les EPUB, FB2 et CBZ. Sur certains appareils, la rotation du capteur G peut être désactivée.",
+                    "El seguimiento se inicia automáticamente para EPUB, FB2 y CBZ. En algunos dispositivos esto puede desactivar la rotación del sensor G.")
                : tr("Öffne Better Stats einmal nach jedem Neustart, um Tracking zu starten. Bücher öffnen direkt im Stock-Reader und der G-Sensor bleibt verfügbar.",
-                    "Open Better Stats once after each restart to start tracking. Books open directly in the stock reader and the G-sensor remains available."),
+                    "Open Better Stats once after each restart to start tracking. Books open directly in the stock reader and the G-sensor remains available.",
+                    "Ouvre Better Stats une fois après chaque redémarrage pour lancer le suivi. Les livres s'ouvrent dans le lecteur d'origine et le capteur G reste disponible.",
+                    "Abre Better Stats una vez tras cada reinicio para iniciar el seguimiento. Los libros se abren en el lector de serie y el sensor G sigue disponible."),
          ALIGN_LEFT | VALIGN_TOP);
 
     DrawLine(inner_x, layout.y + dp(276),
              layout.x + layout.w - dp(20), layout.y + dp(276), LGRAY);
     set_font(app.heading, BLACK);
     text(inner_x, layout.y + dp(278), inner_w, dp(28),
-         tr("Updates", "Updates"), ALIGN_LEFT | VALIGN_MIDDLE);
+         tr("Updates", "Updates", "Mises à jour", "Actualizaciones"),
+         ALIGN_LEFT | VALIGN_MIDDLE);
     set_font(app.body, BLACK);
     text(inner_x, layout.update_y,
          inner_w - toggle_w - dp(20), layout.row_h,
          tr("Automatisch nach Updates suchen",
-            "Check for updates automatically"),
+            "Check for updates automatically",
+            "Vérifier les mises à jour automatiquement",
+            "Buscar actualizaciones automáticamente"),
          ALIGN_LEFT | VALIGN_MIDDLE | DOTS);
     draw_toggle(layout.x + layout.w - dp(20) - toggle_w,
                 layout.update_y + (layout.row_h - dp(28)) / 2,
@@ -1182,10 +1249,12 @@ static void draw_settings_dialog(void)
     text(inner_x, layout.update_y + layout.row_h,
          inner_w, dp(42),
          tr("Prüft beim Start über bekanntes WLAN; Installation nach Bestätigung.",
-            "Checks on launch over known Wi-Fi; installs after confirmation."),
+            "Checks on launch over known Wi-Fi; installs after confirmation.",
+            "Vérifie au lancement via le Wi-Fi connu ; installe après confirmation.",
+            "Comprueba al iniciar por Wi-Fi conocida; instala tras confirmación."),
          ALIGN_LEFT | VALIGN_TOP);
     snprintf(version, sizeof(version), "%s: %s",
-             tr("Installiert", "Installed"),
+             tr("Installiert", "Installed", "Installé", "Instalado"),
              *app.update.current_version ? app.update.current_version : "–");
     text(inner_x, layout.check_y - dp(32), inner_w, dp(28), version,
          ALIGN_LEFT | VALIGN_MIDDLE | DOTS);
@@ -1193,7 +1262,7 @@ static void draw_settings_dialog(void)
     DrawRect(inner_x, layout.check_y, inner_w, layout.check_h, BLACK);
     set_font(app.heading, BLACK);
     text(inner_x, layout.check_y, inner_w, layout.check_h,
-         tr("Jetzt prüfen", "Check now"),
+         tr("Jetzt prüfen", "Check now", "Vérifier", "Comprobar"),
          ALIGN_CENTER | VALIGN_MIDDLE);
 }
 
@@ -1202,7 +1271,9 @@ static void draw_error(void)
     set_font(app.heading, BLACK);
     text(dp(32), content_top() + dp(60), app.width - dp(64), dp(60),
          tr("Statistiken konnten nicht geladen werden",
-            "Statistics could not be loaded"),
+            "Statistics could not be loaded",
+            "Impossible de charger les statistiques",
+            "No se pudieron cargar las estadísticas"),
          ALIGN_CENTER | VALIGN_MIDDLE);
     set_font(app.body, DGRAY);
     text(dp(48), content_top() + dp(140), app.width - dp(96), dp(180),
@@ -1327,22 +1398,33 @@ static const char *update_error_text(void)
 {
     switch (app.update.error) {
     case BS_UPDATE_ERR_NETWORK:
-        return tr("Keine WLAN-Verbindung.", "No Wi-Fi connection.");
+        return tr("Keine WLAN-Verbindung.", "No Wi-Fi connection.",
+                  "Pas de connexion Wi-Fi.", "Sin conexión Wi-Fi.");
     case BS_UPDATE_ERR_DOWNLOAD:
-        return tr("Download fehlgeschlagen.", "Download failed.");
+        return tr("Download fehlgeschlagen.", "Download failed.",
+                  "Échec du téléchargement.", "Descarga fallida.");
     case BS_UPDATE_ERR_RESPONSE:
-        return tr("Release-Antwort ungültig.", "Invalid release response.");
+        return tr("Release-Antwort ungültig.", "Invalid release response.",
+                  "Réponse de version invalide.", "Respuesta de versión no válida.");
     case BS_UPDATE_ERR_ASSET:
         return tr("Kein passendes Update-Paket gefunden.",
-                  "No matching update package found.");
+                  "No matching update package found.",
+                  "Aucun paquet de mise à jour correspondant trouvé.",
+                  "No se encontró un paquete de actualización compatible.");
     case BS_UPDATE_ERR_CORRUPT:
-        return tr("Update-Paket ist beschädigt.", "Update package is damaged.");
+        return tr("Update-Paket ist beschädigt.", "Update package is damaged.",
+                  "Le paquet de mise à jour est endommagé.",
+                  "El paquete de actualización está dañado.");
     case BS_UPDATE_ERR_UNSUPPORTED:
         return tr("Diese Firmware unterstützt WLAN-Updates nicht.",
-                  "This firmware does not support Wi-Fi updates.");
+                  "This firmware does not support Wi-Fi updates.",
+                  "Ce firmware ne prend pas en charge les mises à jour Wi-Fi.",
+                  "Este firmware no admite actualizaciones por Wi-Fi.");
     default:
         return tr("Update konnte nicht installiert werden.",
-                  "The update could not be installed.");
+                  "The update could not be installed.",
+                  "La mise à jour n'a pas pu être installée.",
+                  "La actualización no se pudo instalar.");
     }
 }
 
@@ -1352,15 +1434,16 @@ static void install_update(void)
     int result = bs_update_install(&app.update);
     HideHourglass();
     if (result != 0) {
-        Message(ICON_WARNING, tr("Update", "Update"),
+        Message(ICON_WARNING, tr("Update", "Update", "Mise à jour", "Actualización"),
                 update_error_text(), 5000);
         return;
     }
     if (bs_update_restart() == 0) {
         CloseApp();
     } else {
-        Message(ICON_WARNING, tr("Update", "Update"),
-                tr("Neustart fehlgeschlagen.", "Restart failed."), 5000);
+        Message(ICON_WARNING, tr("Update", "Update", "Mise à jour", "Actualización"),
+                tr("Neustart fehlgeschlagen.", "Restart failed.",
+                   "Échec du redémarrage.", "Reinicio fallido."), 5000);
     }
 }
 
@@ -1382,16 +1465,21 @@ static void check_for_updates(int automatic)
     if (result == BS_UPDATE_AVAILABLE) {
         char message[256];
         snprintf(message, sizeof(message),
-                 tr("Version %s ist verfügbar.", "Version %s is available."),
+                 tr("Version %s ist verfügbar.", "Version %s is available.",
+                    "La version %s est disponible.", "La versión %s está disponible."),
                  app.update.latest_version);
-        Dialog(ICON_QUESTION, tr("Update", "Update"), message,
-               tr("Jetzt installieren", "Install now"),
-               tr("Später", "Later"), update_dialog_handler);
+        Dialog(ICON_QUESTION, tr("Update", "Update", "Mise à jour", "Actualización"),
+               message,
+               tr("Jetzt installieren", "Install now",
+                  "Installer maintenant", "Instalar ahora"),
+               tr("Später", "Later", "Plus tard", "Más tarde"),
+               update_dialog_handler);
     } else if (!automatic) {
         Message(result == BS_UPDATE_CURRENT ? ICON_INFORMATION : ICON_WARNING,
-                tr("Update", "Update"),
+                tr("Update", "Update", "Mise à jour", "Actualización"),
                 result == BS_UPDATE_CURRENT
-                    ? tr("Better Stats ist aktuell.", "Better Stats is up to date.")
+                    ? tr("Better Stats ist aktuell.", "Better Stats is up to date.",
+                         "Better Stats est à jour.", "Better Stats está actualizado.")
                     : update_error_text(),
                 5000);
     }
@@ -1413,7 +1501,8 @@ static void show_settings(void)
 
 static void automatic_update(void)
 {
-    app.release_notes = bs_update_release_notes(app.german ? "de" : "en");
+    app.release_notes = bs_update_release_notes(
+        ((const char *[]){"de", "en", "fr", "es"})[app.lang]);
     if (app.release_notes && *app.release_notes) {
         app.release_scroll = 0;
         app.dialog = DIALOG_RELEASE_NOTES;
@@ -1467,22 +1556,30 @@ static void settings_pointer_up(int x, int y)
         draw();
         if (app.autostart.enabled == wanted && !wanted)
             Dialog(ICON_QUESTION,
-                   tr("Neustart erforderlich", "Restart required"),
+                   tr("Neustart erforderlich", "Restart required",
+                      "Redémarrage nécessaire", "Reinicio necesario"),
                    tr("Autostart ist ausgeschaltet. Starte den Reader neu, damit Bücher direkt im Stock-Reader geöffnet werden und der G-Sensor wieder funktioniert.",
-                      "Autostart is off. Restart the reader so books open directly in the stock reader and G-sensor rotation works again."),
-                   tr("Jetzt neu starten", "Restart now"),
-                   tr("Später", "Later"), restart_dialog_handler);
+                      "Autostart is off. Restart the reader so books open directly in the stock reader and G-sensor rotation works again.",
+                      "Le démarrage auto est désactivé. Redémarre le lecteur pour que les livres s'ouvrent dans le lecteur d'origine et que le capteur G fonctionne à nouveau.",
+                      "El inicio automático está desactivado. Reinicia el lector para que los libros se abran en el lector de serie y el sensor G vuelva a funcionar."),
+                   tr("Jetzt neu starten", "Restart now",
+                      "Redémarrer", "Reiniciar"),
+                   tr("Später", "Later", "Plus tard", "Más tarde"),
+                   restart_dialog_handler);
         else if (app.autostart.enabled != wanted)
-            Message(ICON_WARNING, tr("Autostart", "Autostart"),
+            Message(ICON_WARNING, tr("Autostart", "Autostart",
+                                       "Démarrage auto", "Inicio automático"),
                     app.autostart.message, 5000);
         return;
     }
     if (point_in(x, y, inner_x, layout.update_y,
                  inner_w, layout.row_h)) {
         if (bs_update_set_auto_enabled(!bs_update_auto_enabled()) != 0)
-            Message(ICON_WARNING, tr("Update", "Update"),
+            Message(ICON_WARNING, tr("Update", "Update", "Mise à jour", "Actualización"),
                     tr("Einstellung konnte nicht gespeichert werden.",
-                       "The setting could not be saved."), 5000);
+                       "The setting could not be saved.",
+                       "Le paramètre n'a pas pu être enregistré.",
+                       "No se pudo guardar el ajuste."), 5000);
         else
             draw();
         return;
@@ -1647,7 +1744,14 @@ static int handler(int type, int par1, int par2)
                 app.caption_height = native_height;
         }
         const char *language = currentLang();
-        app.german = !language || !*language || !strncmp(language, "de", 2);
+        if (!language || !*language || !strncmp(language, "de", 2))
+            app.lang = LANG_DE;
+        else if (!strncmp(language, "fr", 2))
+            app.lang = LANG_FR;
+        else if (!strncmp(language, "es", 2))
+            app.lang = LANG_ES;
+        else
+            app.lang = LANG_EN;
         const char *family = iv_get_default_font(FONT_FAMILY);
         app.tiny = OpenFont(family, dp(14), 1);
         app.small = OpenFont(family, dp(16), 1);
