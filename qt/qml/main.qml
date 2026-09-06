@@ -158,21 +158,25 @@ Window {
         }
 
         OverviewTab {
+            id: overviewTab
             anchors.fill: parent
             visible: tabBar.current === 0
         }
 
         StreakTab {
+            id: streakTab
             anchors.fill: parent
             visible: tabBar.current === 1
         }
 
         CalendarTab {
+            id: calendarTab
             anchors.fill: parent
             visible: tabBar.current === 2
         }
 
         YearTab {
+            id: yearTab
             anchors.fill: parent
             visible: tabBar.current === 3
         }
@@ -180,6 +184,11 @@ Window {
 
     Connections {
         target: stats
+
+        function onActivated() {
+            var tabs = [overviewTab, streakTab, calendarTab, yearTab]
+            tabs[tabBar.current].refresh()
+        }
 
         function onUpdateChanged() {
             if (stats.updateState === "available" && !settingsDialog.visible

@@ -56,11 +56,15 @@ StatsBridge::StatsBridge(QObject *parent) : QObject(parent)
     inverted_ = isScreenInverted();
     auto *poll = new QTimer(this);
     connect(poll, &QTimer::timeout, this, [this] {
-        bool now = isScreenInverted();
-        if (now != inverted_) {
-            inverted_ = now;
+        bool inv = isScreenInverted();
+        if (inv != inverted_) {
+            inverted_ = inv;
             emit invertedChanged();
         }
+        bool act = isTaskActive();
+        if (act && !wasActive_)
+            emit activated();
+        wasActive_ = act;
     });
     poll->start(2000);
 }

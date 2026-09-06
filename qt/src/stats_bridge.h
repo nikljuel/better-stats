@@ -49,6 +49,7 @@ public:
 signals:
     void invertedChanged();
     void updateChanged();
+    void activated();
 
 private:
     void checkForUpdates(bool automatic);
@@ -58,6 +59,7 @@ private:
     bs_update_info update_{};
     QString updateState_ = QStringLiteral("idle");
     bool inverted_ = false;
+    bool wasActive_ = true;
     bool releaseNotesPending_ = false;
     bool automaticUpdateDeferred_ = false;
 };

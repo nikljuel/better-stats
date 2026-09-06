@@ -15,4 +15,5 @@ QString inkViewFontFamily();
 QString inkViewLang(); /* e.g. "de", "en" */
 void rebootPocketBook();
 bool isScreenInverted();
+bool isTaskActive();
 void enableScreenInversion();

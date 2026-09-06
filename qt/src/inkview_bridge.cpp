@@ -53,6 +53,11 @@ bool isScreenInverted()
     return inverted;
 }
 
+bool isTaskActive()
+{
+    return IsTaskActive() != 0;
+}
+
 void enableScreenInversion()
 {
     using SetAppCapability = void (*)(int);

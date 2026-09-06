@@ -1671,7 +1671,16 @@ static int handler(int type, int par1, int par2)
         bs_update_read_current(&app.update);
         return 1;
     }
-    if (type == EVT_SHOW || type == EVT_REPAINT) {
+    if (type == EVT_SHOW || type == EVT_REPAINT || type == EVT_FOREGROUND) {
+        if ((type == EVT_SHOW || type == EVT_FOREGROUND) && app.loaded_tab >= 0) {
+            if (app.loaded_tab == TAB_OVERVIEW)
+                bs_reading_list_free(&app.reading);
+            else if (app.loaded_tab == TAB_CALENDAR)
+                bs_month_free(&app.month);
+            else if (app.loaded_tab == TAB_YEAR)
+                bs_year_books_free(&app.year_books);
+            app.loaded_tab = -1;
+        }
         draw();
         if (!app.auto_update_scheduled) {
             app.auto_update_scheduled = 1;
