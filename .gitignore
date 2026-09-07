@@ -1,0 +1,21 @@
+# Build output
+build*/
+*.app
+!packaging/BetterStats.app
+
+# Fetched by `make sdk` (see BUILDING.md)
+third_party/pocketbook-sdk-qt6/
+third_party/pocketbook-sdk-hardfp/
+
+
+# macOS
+.DS_Store
+
+# scratch
+*.tmp
+
+# Private design references (personal screenshots)
+references/
+
+# Community feedback (not in repo)
+community/

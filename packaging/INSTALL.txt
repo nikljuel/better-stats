@@ -1,0 +1,15 @@
+Better Stats - Installation
+
+1. Extract the ZIP.
+2. Copy "BetterStats.app" and the "betterstats" folder
+   into the existing "applications" folder on your reader.
+3. Eject the reader and open BetterStats once.
+
+On first launch automatic tracking is set up; Qt devices
+also register a custom launcher icon. No immediate reboot
+is needed after installing or enabling Autostart.
+If automatic tracking interferes with G-sensor rotation,
+turn Autostart off in Settings and open Better Stats once
+after each reboot to start tracking manually. Restart the
+reader when prompted after turning Autostart off.
+Future updates install from Settings > Check now.
